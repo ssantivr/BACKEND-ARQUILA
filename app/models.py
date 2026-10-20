@@ -5,12 +5,15 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Boolean,
     CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
+    Integer,
     LargeBinary,
     Numeric,
+    SmallInteger,
     String,
     Table,
     Text,
@@ -23,6 +26,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 JsonObject = JSON().with_variant(JSONB(), "postgresql")
+# SQLite only numbers a primary key by itself when it is a plain INTEGER.
+BigIdentifier = BigInteger().with_variant(Integer(), "sqlite")
 
 role_permissions = Table(
     "role_permissions",
@@ -73,6 +78,10 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(120))
     email: Mapped[str] = mapped_column(String(255), unique=True)
     password_hash: Mapped[str | None] = mapped_column(String(255))
+    display_name: Mapped[str | None] = mapped_column(String(120))
+    avatar_file_id: Mapped[int | None] = mapped_column(
+        ForeignKey("files.id", ondelete="SET NULL", use_alter=True)
+    )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
     projects: Mapped[list["Project"]] = relationship(
@@ -83,6 +92,8 @@ class User(Base):
         cascade="all, delete-orphan"
     )
     roles: Mapped[list[Role]] = relationship(secondary=user_roles, lazy="selectin")
+    notifications: Mapped[list["Notification"]] = relationship(cascade="all, delete-orphan")
+    preferences: Mapped["UserPreferences | None"] = relationship(cascade="all, delete-orphan")
 
 
 class UserSession(Base):
@@ -111,6 +122,7 @@ class Project(Base):
         UniqueConstraint("owner_id", "name"),
         CheckConstraint("status IN ('draft', 'active', 'archived')"),
         CheckConstraint("roof IN ('gable', 'flat')"),
+        CheckConstraint("progress BETWEEN 0 AND 100"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -120,12 +132,19 @@ class Project(Base):
     location: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(20), server_default="draft")
     roof: Mapped[str] = mapped_column(String(10), server_default="gable")
+    progress: Mapped[int] = mapped_column(SmallInteger, server_default="0")
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cover_file_id: Mapped[int | None] = mapped_column(
+        ForeignKey("files.id", ondelete="SET NULL", use_alter=True)
+    )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
 
     owner: Mapped[User] = relationship(back_populates="projects")
     terrains: Mapped[list["Terrain"]] = relationship(cascade="all, delete-orphan")
-    files: Mapped[list["File"]] = relationship(cascade="all, delete-orphan")
+    files: Mapped[list["File"]] = relationship(
+        cascade="all, delete-orphan", foreign_keys="File.project_id"
+    )
     plans: Mapped[list["Plan"]] = relationship(cascade="all, delete-orphan")
     elevations: Mapped[list["Elevation"]] = relationship(cascade="all, delete-orphan")
     materials: Mapped[list["Material"]] = relationship(cascade="all, delete-orphan")
@@ -135,6 +154,13 @@ class Project(Base):
     spatial_elements: Mapped[list["SpatialElement"]] = relationship(cascade="all, delete-orphan")
     walkthrough_steps: Mapped[list["WalkthroughStep"]] = relationship(cascade="all, delete-orphan")
     renovation_logs: Mapped[list["RenovationLog"]] = relationship(cascade="all, delete-orphan")
+    tasks: Mapped[list["Task"]] = relationship(cascade="all, delete-orphan")
+    versions: Mapped[list["ProjectVersion"]] = relationship(cascade="all, delete-orphan")
+    activity: Mapped[list["ActivityEntry"]] = relationship(cascade="all, delete-orphan")
+    scene_settings: Mapped["SceneSettings | None"] = relationship(cascade="all, delete-orphan")
+    walkthrough_points: Mapped[list["WalkthroughPoint"]] = relationship(
+        cascade="all, delete-orphan"
+    )
 
 
 class Terrain(Base):
@@ -532,5 +558,124 @@ class RenovationLog(Base):
     planned_end: Mapped[date | None] = mapped_column()
     completed_at: Mapped[datetime | None] = mapped_column()
     estimated_cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+
+
+class Task(Base):
+    __tablename__ = "tasks"
+    __table_args__ = (
+        CheckConstraint("status IN ('todo', 'in_progress', 'done')"),
+        CheckConstraint("progress BETWEEN 0 AND 100"),
+        CheckConstraint("status <> 'done' OR progress = 100"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    title: Mapped[str] = mapped_column(String(160))
+    description: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="todo")
+    assignee_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    due_date: Mapped[date | None] = mapped_column()
+    progress: Mapped[int] = mapped_column(SmallInteger, default=0)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+
+
+class ProjectVersion(Base):
+    __tablename__ = "project_versions"
+    __table_args__ = (
+        UniqueConstraint("project_id", "version_number"),
+        CheckConstraint("version_number > 0"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    version_number: Mapped[int] = mapped_column()
+    label: Mapped[str | None] = mapped_column(String(160))
+    snapshot: Mapped[dict[str, Any]] = mapped_column(JsonObject, default=dict)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class ActivityEntry(Base):
+    __tablename__ = "activity_log"
+    __table_args__ = (CheckConstraint("entity_id IS NULL OR entity_type IS NOT NULL"),)
+
+    id: Mapped[int] = mapped_column(BigIdentifier, primary_key=True)
+    project_id: Mapped[int | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    action: Mapped[str] = mapped_column(String(40))
+    entity_type: Mapped[str | None] = mapped_column(String(40))
+    entity_id: Mapped[int | None] = mapped_column()
+    detail: Mapped[dict[str, Any]] = mapped_column(JsonObject, default=dict)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(160))
+    body: Mapped[str | None] = mapped_column(Text)
+    read_at: Mapped[datetime | None] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class UserPreferences(Base):
+    __tablename__ = "user_preferences"
+    __table_args__ = (
+        CheckConstraint("theme IN ('light', 'dark', 'auto')"),
+        CheckConstraint("units IN ('metric', 'imperial')"),
+        CheckConstraint("density IN ('compact', 'comfortable', 'spacious')"),
+        CheckConstraint("preview_quality IN ('low', 'medium', 'high')"),
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    theme: Mapped[str] = mapped_column(String(10), default="auto")
+    units: Mapped[str] = mapped_column(String(10), default="metric")
+    density: Mapped[str] = mapped_column(String(20), default="comfortable")
+    reduce_motion: Mapped[bool] = mapped_column(Boolean, default=False)
+    camera_defaults: Mapped[dict[str, Any]] = mapped_column(JsonObject, default=dict)
+    preview_quality: Mapped[str] = mapped_column(String(10), default="medium")
+    notifications: Mapped[dict[str, Any]] = mapped_column(JsonObject, default=dict)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+
+
+class SceneSettings(Base):
+    __tablename__ = "scene_settings"
+
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True
+    )
+    lighting: Mapped[dict[str, Any]] = mapped_column(JsonObject, default=dict)
+    camera_presets: Mapped[list[Any]] = mapped_column(JsonObject, default=list)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+
+
+class WalkthroughPoint(Base):
+    __tablename__ = "walkthrough_points"
+    __table_args__ = (CheckConstraint("sort_order >= 0"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(160))
+    position: Mapped[list[float]] = mapped_column(JsonObject)
+    target: Mapped[list[float]] = mapped_column(JsonObject)
+    sort_order: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
