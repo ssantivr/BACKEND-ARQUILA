@@ -466,6 +466,10 @@ class SummaryRead(BaseModel):
     terrains: int
     total_area_m2: float
     materials_total_cost: float
+    in_progress_projects: int = 0
+    completed_projects: int = 0
+    materials: int = 0
+    plans: int = 0
 
 
 def within_json_limit[T](value: T) -> T:

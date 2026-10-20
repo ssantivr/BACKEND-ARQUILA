@@ -18,6 +18,7 @@ def get_summary(
     repository = SummaryRepository(session)
     by_status = repository.projects_by_status(user.id)
     terrains, total_area = repository.terrain_totals(user.id)
+    in_progress, completed = repository.progress_counts(user.id)
 
     return SummaryRead(
         projects=sum(by_status.values()),
@@ -27,4 +28,8 @@ def get_summary(
         terrains=terrains,
         total_area_m2=float(total_area),
         materials_total_cost=float(repository.materials_total_cost(user.id)),
+        in_progress_projects=in_progress,
+        completed_projects=completed,
+        materials=repository.materials_count(user.id),
+        plans=repository.plans_count(user.id),
     )

@@ -1,9 +1,11 @@
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from app.models import Material, Project, Terrain
+from app.database import Base
+from app.models import Material, Plan, Project, Terrain
+from app.repositories.project_repository import is_archived
 
 
 class SummaryRepository:
@@ -32,3 +34,39 @@ class SummaryRepository:
             .join(Project, Material.project_id == Project.id)
             .where(Project.owner_id == owner_id)
         )
+
+    def progress_counts(self, owner_id: int) -> tuple[int, int]:
+        """Projects being worked on (active, not finished) and finished ones (at 100 %)."""
+        in_progress, completed = self.session.execute(
+            select(
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                (Project.status == "active")
+                                & (Project.progress < 100)
+                                & ~is_archived(),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+                func.coalesce(func.sum(case((Project.progress == 100, 1), else_=0)), 0),
+            ).where(Project.owner_id == owner_id)
+        ).one()
+        return int(in_progress), int(completed)
+
+    def count_in_projects(self, model: type[Base], owner_id: int) -> int:
+        return self.session.scalar(
+            select(func.count(model.id))
+            .join(Project, model.project_id == Project.id)
+            .where(Project.owner_id == owner_id)
+        )
+
+    def materials_count(self, owner_id: int) -> int:
+        return self.count_in_projects(Material, owner_id)
+
+    def plans_count(self, owner_id: int) -> int:
+        return self.count_in_projects(Plan, owner_id)

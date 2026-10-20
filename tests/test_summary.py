@@ -11,6 +11,10 @@ EMPTY = {
     "terrains": 0,
     "total_area_m2": 0,
     "materials_total_cost": 0,
+    "in_progress_projects": 0,
+    "completed_projects": 0,
+    "materials": 0,
+    "plans": 0,
 }
 
 
@@ -58,5 +62,30 @@ def test_summary_adds_up_only_the_users_own_data(client):
         "terrains": 2,
         "total_area_m2": 570.5,
         "materials_total_cost": 1385.0,
+        "in_progress_projects": 1,
+        "completed_projects": 0,
+        "materials": 2,
+        "plans": 0,
     }
     assert other.get("/summary").json()["projects"] == 1
+
+
+def test_summary_counts_progress_and_plans(client):
+    register(client)
+    working = client.post("/projects", json={"name": "Working", "status": "active"}).json()["id"]
+    done = client.post("/projects", json={"name": "Done", "status": "active"}).json()["id"]
+    shelved = client.post("/projects", json={"name": "Shelved", "status": "active"}).json()["id"]
+
+    client.patch(f"/projects/{working}", json={"progress": 40})
+    client.patch(f"/projects/{done}", json={"progress": 100})
+    client.post(f"/projects/{shelved}/archive")
+    client.post(f"/projects/{working}/plans", json={"title": "Planta baja"})
+    client.post(f"/projects/{done}/plans", json={"title": "Planta alta"})
+
+    summary = client.get("/summary").json()
+
+    assert summary["projects"] == 3
+    assert summary["in_progress_projects"] == 1
+    assert summary["completed_projects"] == 1
+    assert summary["archived_projects"] == 1
+    assert summary["plans"] == 2
