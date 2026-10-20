@@ -18,6 +18,7 @@ from app.api import (
     materials,
     notifications,
     plans,
+    preferences,
     projects,
     recommendations,
     rooms,
@@ -127,6 +128,7 @@ app.include_router(activity.router)
 app.include_router(versions.router)
 app.include_router(tasks.router)
 app.include_router(notifications.router)
+app.include_router(preferences.router)
 app.include_router(v1.router)
 
 
