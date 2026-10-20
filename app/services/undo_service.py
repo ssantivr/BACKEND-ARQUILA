@@ -53,6 +53,7 @@ class UndoService(ProjectScopedService):
             ) from None
 
         undo_history.record_restored(RestoredRecord(deleted, instance.id), self.session)
+        self._record("restored", deleted.kind, project_id, instance.id, deleted.label)
 
         return deleted
 
@@ -74,5 +75,6 @@ class UndoService(ProjectScopedService):
         self.session.delete(instance)
         self.session.commit()
         undo_history.record(deleted, keep_redo=True, session=self.session)
+        self._record("deleted", deleted.kind, project_id, restored.restored_id, deleted.label)
 
         return deleted

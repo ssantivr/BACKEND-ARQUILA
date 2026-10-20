@@ -1,11 +1,20 @@
-from datetime import datetime
-from typing import Annotated, Literal
+import json
+from datetime import date, datetime
+from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from app.services.geometry import polygon_area
 
 ProjectStatus = Literal["draft", "active", "archived"]
+ProjectSort = Literal["id", "name", "created_at", "updated_at", "status", "progress"]
+SortOrder = Literal["asc", "desc"]
+TaskStatus = Literal["todo", "in_progress", "done"]
+Theme = Literal["light", "dark", "auto"]
+MeasurementUnits = Literal["metric", "imperial"]
+Density = Literal["compact", "comfortable", "spacious"]
+PreviewQuality = Literal["low", "medium", "high"]
+MAX_JSON_CHARACTERS = 4000
 Orientation = Literal["north", "south", "east", "west"]
 RecommendationSource = Literal["ai", "user", "system"]
 RecommendationPriority = Literal["high", "medium", "low"]
@@ -42,6 +51,18 @@ class UserRead(BaseModel):
     name: str
     email: str
     created_at: datetime
+    display_name: str | None = None
+    avatar_file_id: int | None = None
+
+
+class ProfileUpdate(BaseModel):
+    display_name: str | None = Field(default=None, max_length=120)
+    avatar_file_id: int | None = None
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 class ProjectCreate(BaseModel):
@@ -56,6 +77,8 @@ class ProjectUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     location: str | None = Field(default=None, max_length=255)
     status: ProjectStatus | None = None
+    progress: int | None = Field(default=None, ge=0, le=100)
+    cover_file_id: int | None = None
 
 
 class ProjectRead(BaseModel):
@@ -69,6 +92,20 @@ class ProjectRead(BaseModel):
     status: ProjectStatus
     created_at: datetime
     updated_at: datetime
+    progress: int = 0
+    archived_at: datetime | None = None
+    cover_file_id: int | None = None
+
+
+class ProjectPage(BaseModel):
+    items: list[ProjectRead]
+    total: int
+    page: int
+    page_size: int
+
+
+class ProjectDuplicate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
 
 
 class TemplateRead(BaseModel):
@@ -429,3 +466,176 @@ class SummaryRead(BaseModel):
     terrains: int
     total_area_m2: float
     materials_total_cost: float
+
+
+def within_json_limit[T](value: T) -> T:
+    if len(json.dumps(value)) > MAX_JSON_CHARACTERS:
+        raise ValueError(f"must take at most {MAX_JSON_CHARACTERS} characters as JSON")
+
+    return value
+
+
+Coordinate = Annotated[float, Field(ge=-100000, le=100000)]
+Vector3 = Annotated[list[Coordinate], Field(min_length=3, max_length=3)]
+ShortKey = Annotated[str, Field(min_length=1, max_length=40)]
+FlatValue = bool | float | Annotated[str, Field(max_length=200)]
+
+
+class ActivityRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int | None
+    user_id: int | None
+    action: str
+    entity_type: str | None
+    entity_id: int | None
+    detail: dict[str, Any]
+    created_at: datetime
+
+
+class ActivityPage(BaseModel):
+    items: list[ActivityRead]
+    total: int
+    page: int
+    page_size: int
+
+
+class TaskCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=2000)
+    status: TaskStatus = "todo"
+    assignee_id: int | None = None
+    due_date: date | None = None
+    progress: int | None = Field(default=None, ge=0, le=100)
+
+
+class TaskUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=2000)
+    status: TaskStatus | None = None
+    assignee_id: int | None = None
+    due_date: date | None = None
+    progress: int | None = Field(default=None, ge=0, le=100)
+
+
+class TaskRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    title: str
+    description: str | None
+    status: TaskStatus
+    assignee_id: int | None
+    due_date: date | None
+    progress: int
+    created_by: int | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class VersionCreate(BaseModel):
+    label: str | None = Field(default=None, min_length=1, max_length=160)
+
+
+class VersionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    version_number: int
+    label: str | None
+    created_by: int | None
+    created_at: datetime
+    contents: dict[str, int]
+
+
+class VersionDetail(VersionRead):
+    snapshot: dict[str, Any]
+
+
+class PreferencesUpdate(BaseModel):
+    theme: Theme | None = None
+    units: MeasurementUnits | None = None
+    density: Density | None = None
+    reduce_motion: bool | None = None
+    preview_quality: PreviewQuality | None = None
+    camera_defaults: Annotated[dict[ShortKey, Any] | None, AfterValidator(within_json_limit)] = None
+    notifications: Annotated[dict[ShortKey, bool] | None, Field(max_length=30)] = None
+
+
+class PreferencesRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    theme: Theme
+    units: MeasurementUnits
+    density: Density
+    reduce_motion: bool
+    preview_quality: PreviewQuality
+    camera_defaults: dict[str, Any]
+    notifications: dict[str, bool]
+
+
+class NotificationRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    body: str | None
+    read_at: datetime | None
+    created_at: datetime
+
+
+class NotificationsMarked(BaseModel):
+    updated: int
+
+
+class CameraPreset(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    position: Vector3
+    target: Vector3
+    fov: float | None = Field(default=None, ge=10, le=120)
+
+
+class SceneSettingsUpdate(BaseModel):
+    lighting: Annotated[dict[ShortKey, FlatValue], Field(max_length=30)] = Field(
+        default_factory=dict
+    )
+    camera_presets: list[CameraPreset] = Field(default_factory=list, max_length=20)
+
+
+class SceneSettingsRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    project_id: int
+    lighting: dict[str, Any]
+    camera_presets: list[CameraPreset]
+    updated_at: datetime | None
+
+
+class WalkthroughPointCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    position: Vector3
+    target: Vector3
+    sort_order: int = Field(default=0, ge=0, le=100000)
+
+
+class WalkthroughPointUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    position: Vector3 | None = None
+    target: Vector3 | None = None
+    sort_order: int | None = Field(default=None, ge=0, le=100000)
+
+
+class WalkthroughPointRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    name: str
+    position: list[float]
+    target: list[float]
+    sort_order: int
+    created_at: datetime
+    updated_at: datetime

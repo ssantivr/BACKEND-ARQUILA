@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 
 from app.api import (
+    activity,
     auth,
     components,
     conversations,
@@ -112,6 +113,7 @@ app.include_router(recommendations.router)
 app.include_router(undo.router)
 app.include_router(conversations.router)
 app.include_router(summary.router)
+app.include_router(activity.router)
 app.include_router(v1.router)
 
 

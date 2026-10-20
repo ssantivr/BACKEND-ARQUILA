@@ -22,9 +22,14 @@ class RecommendationService(ProjectScopedService):
     def create(self, project_id: int, data: RecommendationCreate) -> Recommendation:
         self._ensure_project_exists(project_id)
 
-        return self.recommendations.save(
+        recommendation = self.recommendations.save(
             Recommendation(project_id=project_id, source="user", **data.model_dump())
         )
+        self._record(
+            "created", "recommendation", project_id, recommendation.id, recommendation.category
+        )
+
+        return recommendation
 
     def list(
         self,
@@ -65,4 +70,6 @@ class RecommendationService(ProjectScopedService):
         if recommendation is None or not self._owns(recommendation.project_id):
             raise NotFoundError("Recommendation not found")
 
+        project_id, category = recommendation.project_id, recommendation.category
         self.recommendations.delete(recommendation)
+        self._record("deleted", "recommendation", project_id, recommendation_id, category)

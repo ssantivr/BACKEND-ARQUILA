@@ -19,7 +19,10 @@ class ElevationService(ProjectScopedService):
         self._ensure_project_exists(project_id)
         self._ensure_file_in_project(data.file_id, project_id)
 
-        return self.elevations.save(Elevation(project_id=project_id, **data.model_dump()))
+        elevation = self.elevations.save(Elevation(project_id=project_id, **data.model_dump()))
+        self._record("created", "elevation", project_id, elevation.id, elevation.title)
+
+        return elevation
 
     def list(self, project_id: int, orientation: str | None = None) -> list[Elevation]:
         self._ensure_project_exists(project_id)
@@ -48,13 +51,24 @@ class ElevationService(ProjectScopedService):
         for field, value in changes.items():
             setattr(elevation, field, value)
 
-        return self.elevations.save(elevation)
+        elevation = self.elevations.save(elevation)
+        self._record(
+            "updated",
+            "elevation",
+            elevation.project_id,
+            elevation.id,
+            elevation.title,
+            fields=sorted(changes),
+        )
+
+        return elevation
 
     def delete(self, elevation_id: int) -> None:
         elevation = self.get(elevation_id)
         deleted = snapshot("elevation", elevation.title, elevation)
         self.elevations.delete(elevation)
         undo_history.record(deleted, session=self.session)
+        self._record("deleted", "elevation", deleted.project_id, elevation_id, deleted.label)
 
     def _ensure_file_in_project(self, file_id: int | None, project_id: int) -> None:
         if file_id is not None and self.files.get_in_project(file_id, project_id) is None:

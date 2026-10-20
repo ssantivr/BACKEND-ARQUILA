@@ -19,7 +19,10 @@ class RoomService(ProjectScopedService):
         self._ensure_project_exists(project_id)
         self._ensure_plan_in_project(data.plan_id, project_id)
 
-        return self.rooms.save(Room(project_id=project_id, **data.model_dump()))
+        room = self.rooms.save(Room(project_id=project_id, **data.model_dump()))
+        self._record("created", "room", project_id, room.id, room.name)
+
+        return room
 
     def list(self, project_id: int) -> list[Room]:
         self._ensure_project_exists(project_id)
@@ -48,13 +51,17 @@ class RoomService(ProjectScopedService):
         for field, value in changes.items():
             setattr(room, field, value)
 
-        return self.rooms.save(room)
+        room = self.rooms.save(room)
+        self._record("updated", "room", room.project_id, room.id, room.name, fields=sorted(changes))
+
+        return room
 
     def delete(self, room_id: int) -> None:
         room = self.get(room_id)
         deleted = snapshot("room", room.name, room)
         self.rooms.delete(room)
         undo_history.record(deleted, session=self.session)
+        self._record("deleted", "room", deleted.project_id, room_id, deleted.label)
 
     def _ensure_plan_in_project(self, plan_id: int, project_id: int) -> None:
         plan = self.plans.get(plan_id)

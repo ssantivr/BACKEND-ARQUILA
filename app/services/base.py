@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.errors import NotFoundError
 from app.models import Room, User
 from app.repositories.project_repository import ProjectRepository
+from app.services.activity_log import record_activity
 
 
 class ProjectScopedService:
@@ -21,6 +22,26 @@ class ProjectScopedService:
     def _ensure_project_exists(self, project_id: int) -> None:
         if not self._owns(project_id):
             raise NotFoundError("Project not found")
+
+    def _record(
+        self,
+        action: str,
+        entity_type: str,
+        project_id: int,
+        entity_id: int,
+        label: str,
+        **detail: Any,
+    ) -> None:
+        record_activity(
+            self.session,
+            self.user,
+            project_id,
+            action,
+            entity_type,
+            entity_id,
+            label=label,
+            **detail,
+        )
 
 
 class ApiScopedService(ProjectScopedService):

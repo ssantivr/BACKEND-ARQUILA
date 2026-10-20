@@ -23,6 +23,12 @@ class FileService(ProjectScopedService):
         self.files = FileRepository(session)
 
     def create(self, project_id: int, filename: str | None, stream: BinaryIO) -> File:
+        file = self._store(project_id, filename, stream)
+        self._record("created", "file", project_id, file.id, file.filename)
+
+        return file
+
+    def _store(self, project_id: int, filename: str | None, stream: BinaryIO) -> File:
         self._ensure_project_exists(project_id)
 
         if storage.keeps_files_in_database():
@@ -88,6 +94,8 @@ class FileService(ProjectScopedService):
     def delete(self, file_id: int) -> None:
         file = self.get(file_id)
         stored_name = file.storage_path
+        project_id, filename = file.project_id, file.filename
 
         self.files.delete(file)
         storage.remove(stored_name)
+        self._record("deleted", "file", project_id, file_id, filename)

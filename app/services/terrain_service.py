@@ -26,8 +26,10 @@ class TerrainService(ProjectScopedService):
         values = data.model_dump(exclude={"points"})
         terrain = Terrain(project_id=project_id, **values)
         terrain.points = build_points(data.points)
+        terrain = self.terrains.save(terrain)
+        self._record("created", "terrain", project_id, terrain.id, terrain.name)
 
-        return self.terrains.save(terrain)
+        return terrain
 
     def list(self, project_id: int) -> list[Terrain]:
         self._ensure_project_exists(project_id)
@@ -50,6 +52,8 @@ class TerrainService(ProjectScopedService):
             if changes.get(required, "") is None:
                 del changes[required]
 
+        fields = sorted(changes)
+
         if "points" in changes:
             del changes["points"]
             terrain.points.clear()
@@ -59,10 +63,16 @@ class TerrainService(ProjectScopedService):
         for field, value in changes.items():
             setattr(terrain, field, value)
 
-        return self.terrains.save(terrain)
+        terrain = self.terrains.save(terrain)
+        self._record(
+            "updated", "terrain", terrain.project_id, terrain.id, terrain.name, fields=fields
+        )
+
+        return terrain
 
     def delete(self, terrain_id: int) -> None:
         terrain = self.get(terrain_id)
         deleted = snapshot("terrain", terrain.name, terrain, ("points",))
         self.terrains.delete(terrain)
         undo_history.record(deleted, session=self.session)
+        self._record("deleted", "terrain", deleted.project_id, terrain_id, deleted.label)

@@ -19,7 +19,12 @@ class ComponentService(ProjectScopedService):
         self._ensure_project_exists(project_id)
         self._ensure_plan_in_project(data.plan_id, project_id)
 
-        return self.components.save(StructuralComponent(project_id=project_id, **data.model_dump()))
+        component = self.components.save(
+            StructuralComponent(project_id=project_id, **data.model_dump())
+        )
+        self._record("created", "component", project_id, component.id, component.name)
+
+        return component
 
     def list(self, project_id: int, kind: str | None = None) -> list[StructuralComponent]:
         self._ensure_project_exists(project_id)
@@ -48,13 +53,24 @@ class ComponentService(ProjectScopedService):
         for field, value in changes.items():
             setattr(component, field, value)
 
-        return self.components.save(component)
+        component = self.components.save(component)
+        self._record(
+            "updated",
+            "component",
+            component.project_id,
+            component.id,
+            component.name,
+            fields=sorted(changes),
+        )
+
+        return component
 
     def delete(self, component_id: int) -> None:
         component = self.get(component_id)
         deleted = snapshot("component", component.name, component)
         self.components.delete(component)
         undo_history.record(deleted, session=self.session)
+        self._record("deleted", "component", deleted.project_id, component_id, deleted.label)
 
     def _ensure_plan_in_project(self, plan_id: int, project_id: int) -> None:
         plan = self.plans.get(plan_id)

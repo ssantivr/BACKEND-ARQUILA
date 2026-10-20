@@ -1,7 +1,7 @@
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.models import Elevation, File, Plan
+from app.models import Elevation, File, Plan, Project, User
 
 
 class FileRepository:
@@ -29,5 +29,15 @@ class FileRepository:
         for model in (Plan, Elevation):
             self.session.execute(update(model).where(model.file_id == file.id).values(file_id=None))
 
+        self.session.execute(
+            update(Project).where(Project.cover_file_id == file.id).values(cover_file_id=None)
+        )
+        self.detach_avatars([file.id])
         self.session.delete(file)
         self.session.commit()
+
+    def detach_avatars(self, file_ids: list[int]) -> None:
+        if file_ids:
+            self.session.execute(
+                update(User).where(User.avatar_file_id.in_(file_ids)).values(avatar_file_id=None)
+            )

@@ -19,7 +19,10 @@ class PlanService(ProjectScopedService):
         self._ensure_project_exists(project_id)
         self._ensure_file_in_project(data.file_id, project_id)
 
-        return self.plans.save(Plan(project_id=project_id, **data.model_dump()))
+        plan = self.plans.save(Plan(project_id=project_id, **data.model_dump()))
+        self._record("created", "plan", project_id, plan.id, plan.title)
+
+        return plan
 
     def list(self, project_id: int) -> list[Plan]:
         self._ensure_project_exists(project_id)
@@ -46,13 +49,19 @@ class PlanService(ProjectScopedService):
         for field, value in changes.items():
             setattr(plan, field, value)
 
-        return self.plans.save(plan)
+        plan = self.plans.save(plan)
+        self._record(
+            "updated", "plan", plan.project_id, plan.id, plan.title, fields=sorted(changes)
+        )
+
+        return plan
 
     def delete(self, plan_id: int) -> None:
         plan = self.get(plan_id)
         deleted = snapshot("plan", plan.title, plan, ("rooms", "components"))
         self.plans.delete(plan)
         undo_history.record(deleted, session=self.session)
+        self._record("deleted", "plan", deleted.project_id, plan_id, deleted.label)
 
     def _ensure_file_in_project(self, file_id: int | None, project_id: int) -> None:
         if file_id is not None and self.files.get_in_project(file_id, project_id) is None:
