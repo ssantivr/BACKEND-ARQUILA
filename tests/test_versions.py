@@ -255,3 +255,42 @@ def test_duplicate_is_recorded_and_needs_an_own_project(client, project_id, stra
     assert items[0]["detail"]["source_project_id"] == project_id
     assert stranger.post(f"/projects/{project_id}/duplicate").status_code == 404
     assert TestClient(app).post(f"/projects/{project_id}/duplicate").status_code == 401
+
+
+def test_restore_unlinks_the_spatial_elements_of_replaced_rooms(client, project_id):
+    plan = client.post(f"/projects/{project_id}/plans", json={"title": "Planta"}).json()
+    room = client.post(
+        f"/projects/{project_id}/rooms",
+        json={
+            "plan_id": plan["id"],
+            "name": "Baño",
+            "x_m": 0,
+            "y_m": 0,
+            "width_m": 2,
+            "depth_m": 2,
+        },
+    ).json()
+    element = client.post(
+        "/api/v1/spatial-data/elements",
+        json={
+            "project_id": project_id,
+            "room_id": room["id"],
+            "layer": "installations",
+            "kind": "water_pipe",
+            "name": "Tubería",
+            "min_x_m": 0,
+            "min_y_m": 0,
+            "min_z_m": 0,
+            "max_x_m": 1,
+            "max_y_m": 0.1,
+            "max_z_m": 0.1,
+        },
+    ).json()
+    version = client.post(f"/projects/{project_id}/versions").json()
+
+    client.post(f"/versions/{version['id']}/restore")
+
+    kept = client.get(f"/api/v1/spatial-data/elements/{element['id']}")
+    assert kept.status_code == 200
+    assert kept.json()["room_id"] is None
+    assert [r["name"] for r in client.get(f"/projects/{project_id}/rooms").json()] == ["Baño"]
