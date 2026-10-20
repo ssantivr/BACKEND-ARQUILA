@@ -28,7 +28,7 @@ class TemplateService:
 
         project = Project(
             owner_id=self.user.id,
-            name=self._free_name(template.name),
+            name=self.projects.free_name(self.user.id, template.name),
             description=template.description,
             location=template.location,
             status="draft",
@@ -88,13 +88,3 @@ class TemplateService:
         self.session.refresh(project)
 
         return project
-
-    def _free_name(self, name: str) -> str:
-        candidate = name
-        copy = 2
-
-        while self.projects.get_by_owner_and_name(self.user.id, candidate) is not None:
-            candidate = f"{name} ({copy})"
-            copy += 1
-
-        return candidate

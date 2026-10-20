@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Project, Property
 
+NAME_LENGTH = 160
 SORT_COLUMNS = {
     "id": Project.id,
     "name": func.lower(Project.name),
@@ -115,6 +116,18 @@ class ProjectRepository:
             query = query.limit(limit)
 
         return list(self.session.scalars(query)), total
+
+    def free_name(self, owner_id: int, name: str) -> str:
+        """The name itself, or with the first free number after it, within the length limit."""
+        candidate = name[:NAME_LENGTH]
+        copy = 2
+
+        while self.get_by_owner_and_name(owner_id, candidate) is not None:
+            suffix = f" ({copy})"
+            candidate = name[: NAME_LENGTH - len(suffix)] + suffix
+            copy += 1
+
+        return candidate
 
     def save(self, project: Project) -> Project:
         self.session.add(project)

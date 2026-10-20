@@ -26,6 +26,7 @@ from app.api import (
     terrains,
     undo,
     v1,
+    versions,
 )
 from app.api.v1.validation import translate
 from app.errors import (
@@ -114,6 +115,7 @@ app.include_router(undo.router)
 app.include_router(conversations.router)
 app.include_router(summary.router)
 app.include_router(activity.router)
+app.include_router(versions.router)
 app.include_router(v1.router)
 
 

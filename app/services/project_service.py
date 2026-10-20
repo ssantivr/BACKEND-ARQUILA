@@ -9,13 +9,15 @@ from app.errors import ConflictError, InvalidDataError, NotFoundError
 from app.models import Project, User
 from app.repositories.activity_repository import ActivityRepository
 from app.repositories.file_repository import FileRepository
-from app.repositories.project_repository import ProjectFilters, ProjectRepository
+from app.repositories.project_repository import NAME_LENGTH, ProjectFilters, ProjectRepository
 from app.schemas import ProjectCreate, ProjectUpdate
 from app.services.activity_log import record_activity
+from app.services.project_snapshot import SnapshotWriter, take
 from app.services.undo_history import undo_history
 
 IMAGE_TYPES = ("image/png", "image/jpeg", "image/webp")
 STATUS_AFTER_ARCHIVE = "active"
+COPY_SUFFIX = " (copia)"
 
 
 def utc_now() -> datetime:
@@ -131,6 +133,34 @@ class ProjectService:
         self._record(project, "unarchived")
 
         return project
+
+    def duplicate(self, project_id: int, name: str | None = None) -> Project:
+        source = self.get(project_id)
+
+        if name is None:
+            base = source.name[: NAME_LENGTH - len(COPY_SUFFIX)] + COPY_SUFFIX
+            name = self.projects.free_name(self.user.id, base)
+        else:
+            self._ensure_name_is_free(self.user.id, name)
+
+        copy = Project(
+            owner_id=self.user.id,
+            name=name,
+            description=source.description,
+            location=source.location,
+            status="draft" if source.status == "archived" else source.status,
+            roof=source.roof,
+            progress=source.progress,
+        )
+        session = self.projects.session
+        session.add(copy)
+        session.flush()
+
+        SnapshotWriter(session, copy).apply(take(source), with_project_fields=False)
+        copy = self.projects.save(copy)
+        self._record(copy, "duplicated", source_project_id=source.id)
+
+        return copy
 
     def delete(self, project_id: int) -> None:
         project = self.get(project_id)

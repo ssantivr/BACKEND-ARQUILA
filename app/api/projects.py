@@ -7,6 +7,7 @@ from app.dtos import PropertyType
 from app.models import User
 from app.schemas import (
     ProjectCreate,
+    ProjectDuplicate,
     ProjectPage,
     ProjectRead,
     ProjectSort,
@@ -83,6 +84,17 @@ def update_project(
     service: ProjectService = Depends(get_service),
 ):
     return service.update(project_id, data)
+
+
+@router.post(
+    "/{project_id}/duplicate", response_model=ProjectRead, status_code=status.HTTP_201_CREATED
+)
+def duplicate_project(
+    project_id: int,
+    data: ProjectDuplicate | None = None,
+    service: ProjectService = Depends(get_service),
+):
+    return service.duplicate(project_id, data.name if data else None)
 
 
 @router.post("/{project_id}/archive", response_model=ProjectRead)

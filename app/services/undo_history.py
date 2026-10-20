@@ -1,6 +1,6 @@
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from threading import Lock
 from typing import Any
@@ -70,7 +70,7 @@ def model_named(table_name: str) -> type[Base]:
 
 
 def encode_value(value: Any) -> Any:
-    if isinstance(value, datetime):
+    if isinstance(value, date):
         return value.isoformat()
 
     if isinstance(value, Decimal):
@@ -99,6 +99,8 @@ def decode_values(model: type[Base], values: dict[str, Any]) -> dict[str, Any]:
 
         if python_type is datetime:
             decoded[column.name] = datetime.fromisoformat(value)
+        elif python_type is date:
+            decoded[column.name] = date.fromisoformat(value)
         elif python_type is Decimal:
             decoded[column.name] = Decimal(value)
 
