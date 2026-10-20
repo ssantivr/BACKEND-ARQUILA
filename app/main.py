@@ -16,6 +16,7 @@ from app.api import (
     elevations,
     files,
     materials,
+    notifications,
     plans,
     projects,
     recommendations,
@@ -118,6 +119,7 @@ app.include_router(summary.router)
 app.include_router(activity.router)
 app.include_router(versions.router)
 app.include_router(tasks.router)
+app.include_router(notifications.router)
 app.include_router(v1.router)
 
 
