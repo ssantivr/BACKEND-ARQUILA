@@ -48,7 +48,7 @@ Copiar `.env.example` a `.env` y completarlo. El archivo `.env` no se sube al re
 | `API_HOST` | Dirección en la que escucha la API. | `127.0.0.1` |
 | `API_PORT` | Puerto de la API. | `8000` |
 | `UPLOAD_DIR` | Carpeta de los archivos subidos. | `uploads` |
-| `STATE_STORAGE` | `memory` guarda en memoria el historial de «Deshacer» y los límites de intentos; `database` los guarda en PostgreSQL. | `memory` |
+| `STATE_STORAGE` | `memory` guarda en memoria el historial de «Deshacer» y los límites de intentos; `database` los guarda en PostgreSQL. **En producción usar `database`.** | `memory` |
 | `FILE_STORAGE` | `disk` guarda los archivos en `UPLOAD_DIR`; `database` los guarda en PostgreSQL. | `disk` |
 | `COOKIE_SECURE` | `1` para enviar la cookie de sesión solo por HTTPS. | `0` |
 | `COOKIE_SAMESITE` | `lax`, `strict` o `none`. Usar `none` solo si la interfaz está en otro sitio; obliga a HTTPS. | `lax` |
@@ -95,7 +95,7 @@ Lee `.env`, aplica las migraciones pendientes y arranca la API en `http://127.0.
 - Poner `API_HOST=0.0.0.0` para aceptar conexiones de fuera, detrás de un servidor que dé HTTPS.
 - Definir `COOKIE_SECURE=1` y poner la dirección pública de la interfaz en `APP_URL`.
 - Apuntar `UPLOAD_DIR` a una carpeta que se conserve entre despliegues, o poner `FILE_STORAGE=database` si no hay ninguna.
-- Ejecutar una sola instancia, o poner `STATE_STORAGE=database`: sin esa variable, los límites de intentos de inicio de sesión y el historial de «Deshacer» viven en memoria.
+- Poner `STATE_STORAGE=database`, el valor recomendado en producción. Con `memory` (el valor por defecto, pensado para desarrollo), los límites de intentos de inicio de sesión y de cambio de contraseña y el historial de «Deshacer» viven en la memoria de cada proceso: se pierden al reiniciar y no se comparten entre instancias, así que el límite de intentos se puede esquivar repartiendo las peticiones.
 
 ### En Vercel
 
@@ -115,8 +115,13 @@ La sesión viaja en una cookie `HttpOnly`. Las rutas con datos de proyectos requ
 | Recurso | Rutas |
 |---|---|
 | Estado | `GET /health` |
-| Autenticación | `POST /auth/register`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/password-reset`, `POST /auth/password-reset/confirm` |
-| Proyectos | `GET`, `POST /projects` · `GET`, `PATCH`, `DELETE /projects/{id}` |
+| Autenticación | `POST /auth/register`, `POST /auth/login`, `POST /auth/logout`, `GET`, `PATCH /auth/me`, `POST /auth/change-password`, `POST /auth/password-reset`, `POST /auth/password-reset/confirm` |
+| Proyectos | `GET`, `POST /projects` · `GET`, `PATCH`, `DELETE /projects/{id}` · `POST /projects/{id}/duplicate`, `/archive`, `/unarchive` |
+| Tareas | `GET`, `POST /projects/{id}/tasks` · `GET`, `PATCH`, `DELETE /tasks/{id}` |
+| Versiones | `GET`, `POST /projects/{id}/versions` · `GET /versions/{id}` · `POST /versions/{id}/restore` |
+| Historial | `GET /projects/{id}/activity` |
+| Escena | `GET`, `PUT /projects/{id}/scene-settings` · `GET`, `POST /projects/{id}/walkthrough-points` · `GET`, `PATCH`, `DELETE /walkthrough-points/{id}` |
+| Preferencias y notificaciones | `GET`, `PUT /users/me/preferences` · `GET /notifications` · `POST /notifications/{id}/read`, `/notifications/read-all` |
 | Plantillas | `GET /templates` · `POST /templates/{template_id}/projects` |
 | Terrenos, materiales, planos, elevaciones, cuartos, componentes | `GET`, `POST /projects/{id}/{recurso}` · `GET`, `PATCH`, `DELETE /{recurso}/{id}`, con `terrains`, `materials`, `plans`, `elevations`, `rooms` y `components` |
 | Archivos | `GET`, `POST /projects/{id}/files` · `GET`, `DELETE /files/{id}` · `GET /files/{id}/content` |
@@ -166,6 +171,8 @@ ruff check app tests
 ## Documentación
 
 - `docs/BACKEND_Y_API.md`: decisiones del backend (autenticación, seguridad, registro de eventos, archivos, IA).
+- `docs/API_CONTRATO.md`: contrato de las rutas añadidas en octubre de 2026 (cuerpos, respuestas, errores y ejemplos), para la interfaz.
+- `docs/PENDIENTE.md`: lo que el backend no hace todavía (renderizado fotorrealista, análisis estructural, exportación a PDF) y lo que haría falta.
 - La documentación general del proyecto (requerimientos, estructuras de datos, complejidad, pruebas) está en el repositorio [ARQUILA](https://github.com/ssantivr/ARQUILA).
 
 Para que Ruff formatee los archivos antes de cada commit, activar los hooks una vez con `pre-commit install`.

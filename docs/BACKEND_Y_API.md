@@ -51,6 +51,7 @@ Las interfaces se declaran con `typing.Protocol`: cualquier clase que tenga el m
 - Las cuentas creadas antes de este cambio tienen la contraseña guardada con `scrypt`. Siguen funcionando: en el primer inicio de sesión correcto, el backend vuelve a guardar la contraseña con Argon2id. Lo mismo ocurre si más adelante se endurecen los parámetros.
 - Un inicio de sesión fallido devuelve el mismo mensaje exista o no el correo y realiza la misma verificación de contraseña en ambos casos, para no revelar qué cuentas existen.
 - La sesión dura 7 días y se elimina del servidor al cerrar sesión.
+- `POST /auth/change-password` exige la contraseña actual, guarda la nueva con Argon2id y cierra todas las demás sesiones de la cuenta; la que hace la petición sigue abierta. Una contraseña actual incorrecta responde 422 y no 401, para que la interfaz no lo tome por una sesión caducada. Tras 5 fallos en 15 minutos responde 429; el control es el mismo que el del inicio de sesión, por usuario, y se guarda en `runtime_state` con `STATE_STORAGE=database`.
 - En producción hay que definir `COOKIE_SECURE=1` para que la cookie solo viaje por HTTPS.
 - `SameSite` se puede cambiar con `COOKIE_SAMESITE` (`lax`, `strict` o `none`). `none` solo hace falta si la interfaz y la API están en sitios distintos: el navegador exige entonces HTTPS, así que la cookie se marca `Secure` aunque `COOKIE_SECURE` valga `0`. Con `none` se pierde la protección de `SameSite` frente a peticiones de escritura desde otros sitios; las peticiones con cuerpo JSON siguen bloqueadas por CORS, pero la subida de archivos y el cierre de sesión no llevan esa barrera.
 
@@ -67,6 +68,16 @@ Las interfaces se declaran con `typing.Protocol`: cualquier clase que tenga el m
 - `APP_URL` indica la dirección de la aplicación que se pone en el enlace.
 - Se atienden como máximo 3 solicitudes por correo cada 15 minutos; las demás se ignoran sin avisar, con la misma respuesta. Usa el mismo control basado en la cola que el inicio de sesión.
 - El envío real por SMTP no está probado: las pruebas usan un envío simulado.
+
+## Proyectos, versiones e historial
+
+El contrato de estas rutas, para la interfaz, está en `API_CONTRATO.md`. Las decisiones:
+
+- **Lista compatible**: `GET /projects` sigue devolviendo la lista de siempre; solo `page` o `page_size` la convierten en una página con `total`. Así la interfaz actual no cambia y la nueva puede pedir páginas. El total viaja además en `X-Total-Count`.
+- **Archivar**: `archived_at` y `status = 'archived'` se mantienen a la vez, se archive con `POST /archive` o con `PATCH`. Al desarchivar se recupera el estado anterior, que queda guardado en el historial de la acción `archived`.
+- **Versiones y duplicado** comparten `services/project_snapshot.py`: el contenido del proyecto se copia a un documento JSON con los mismos ayudantes que «Deshacer» (`column_values`, `encode_values`) y se vuelve a crear fila a fila. Los identificadores cambian, así que los cuartos y componentes van dentro de su plano y los vértices dentro de su terreno. Los archivos no se copian; solo se conserva la referencia mientras el archivo siga en el proyecto. Restaurar guarda antes el estado actual como otra versión y vacía el historial de «Deshacer».
+- **Historial**: cada servicio registra en `activity_log` lo que crea, edita o elimina (`ProjectScopedService._record`). La entrada se escribe después de confirmar el cambio, así que un fallo del registro nunca deshace el cambio, pero en ese caso raro el cambio quedaría sin entrada.
+- **Resumen**: «en progreso» son los proyectos `active` no archivados con avance menor que 100; «completados», los que tienen avance 100.
 
 ## Permisos
 
@@ -235,6 +246,10 @@ Todas las respuestas llevan estas cabeceras, que añade un middleware en `app/ma
 | `Referrer-Policy: no-referrer` | Al seguir un enlace no se envía la dirección de origen. |
 | `Cache-Control: no-store` | Los datos de un usuario no quedan guardados en la caché del navegador ni de un intermediario. |
 | `Content-Security-Policy: frame-ancestors` | Solo la propia aplicación (los orígenes de `CORS_ORIGINS` o `APP_URL`) puede mostrar una respuesta dentro de un marco. |
+| `Permissions-Policy: camera=(), microphone=(), geolocation=()` | La API no necesita cámara, micrófono ni ubicación, así que ninguna respuesta puede pedirlos. |
+| `Strict-Transport-Security` | Solo con `COOKIE_SECURE=1`: el navegador recordará durante un año que el sitio solo se usa por HTTPS. Sin HTTPS no se envía, para no dejar inservible una instalación local. |
+
+No se envía `Cross-Origin-Resource-Policy`: en Vercel la interfaz y la API están en sitios distintos (`vercel.app` es un sufijo público) y esa cabecera impediría mostrar las imágenes de los archivos.
 
 ### Enlace de recuperación
 
@@ -285,7 +300,7 @@ Se pueden definir en la terminal o en el archivo `.env`, que leen `python -m app
 | `DATABASE_DIR` | Carpeta del repositorio `BASE-DE-DATOS-ARQUILA`, de donde salen las migraciones (por defecto la carpeta hermana `../BASE-DE-DATOS-ARQUILA`). |
 | `API_HOST`, `API_PORT` | Dirección y puerto en los que escucha la API (por defecto `127.0.0.1` y `8000`). |
 | `UPLOAD_DIR` | Carpeta de archivos subidos (por defecto `uploads`). |
-| `STATE_STORAGE` | `memory` (por defecto) guarda en memoria el historial de «Deshacer» y los límites de intentos; `database` los guarda en la tabla `runtime_state`. |
+| `STATE_STORAGE` | `memory` (por defecto) guarda en memoria el historial de «Deshacer» y los límites de intentos; `database` los guarda en la tabla `runtime_state`. En producción hay que usar `database`. |
 | `FILE_STORAGE` | `disk` (por defecto) guarda los archivos en `UPLOAD_DIR`; `database` los guarda en la tabla `file_contents`. |
 | `COOKIE_SECURE` | `1` para exigir HTTPS en la cookie de sesión. |
 | `JWT_SECRET` | Clave de al menos 32 bytes para firmar los tokens de acceso de `/api/v1/auth/token`. Sin ella no se emiten tokens; el resto de la API funciona igual. |
