@@ -9,6 +9,7 @@ from app import security, tokens
 from app.errors import (
     AuthenticationError,
     ConflictError,
+    InvalidDataError,
     InvalidTokenError,
     NotConfiguredError,
     TooManyAttemptsError,
@@ -20,9 +21,14 @@ from app.repositories.password_reset_repository import PasswordResetRepository
 from app.repositories.role_repository import RoleRepository
 from app.repositories.session_repository import SessionRepository
 from app.repositories.user_repository import UserRepository
-from app.schemas import LoginRequest, RegisterRequest
+from app.schemas import LoginRequest, PasswordChange, RegisterRequest
 from app.services.access_service import DEFAULT_ROLE
-from app.services.login_limiter import login_limiter, reset_request_limiter
+from app.services.login_limiter import (
+    login_limiter,
+    password_change_limiter,
+    reset_request_limiter,
+)
+from app.services.notification_service import notify
 
 SESSION_LIFETIME = timedelta(days=7)
 RESET_TOKEN_LIFETIME = timedelta(minutes=30)
@@ -171,6 +177,35 @@ class AuthService:
         self.resets.delete_for_user(user.id)
         self.sessions.delete_for_user(user.id)
         login_limiter.reset(user.email, self.users.session)
+
+    def change_password(self, user: User, token: str, data: PasswordChange) -> None:
+        """Change the password and close every other session of the user."""
+        key = str(user.id)
+
+        if password_change_limiter.is_blocked(key, self.users.session):
+            raise TooManyAttemptsError("Too many failed attempts, try again later")
+
+        if not security.verify_password(data.current_password, user.password_hash):
+            password_change_limiter.record_failure(key, self.users.session)
+            logger.warning("password_change_failed", extra={"user_id": user.id})
+            raise InvalidDataError("The current password is incorrect")
+
+        if data.new_password == data.current_password:
+            raise InvalidDataError("The new password must be different from the current one")
+
+        user.password_hash = security.hash_password(data.new_password)
+        self.users.save(user)
+        self.sessions.delete_others_of_user(user.id, security.hash_session_token(token))
+        password_change_limiter.reset(key, self.users.session)
+        login_limiter.reset(user.email, self.users.session)
+        logger.info("password_changed", extra={"user_id": user.id})
+        notify(
+            self.users.session,
+            user,
+            "Contraseña cambiada",
+            "Se cerraron las demás sesiones abiertas. Si no fuiste tú, restablece tu "
+            "contraseña desde la pantalla de inicio de sesión.",
+        )
 
     def logout(self, token: str | None) -> None:
         if token:

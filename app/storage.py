@@ -8,6 +8,7 @@ from app.errors import FileTooLargeError, UnsupportedFileError
 MAX_FILE_BYTES = 20 * 1024 * 1024
 CHUNK_BYTES = 1024 * 1024
 DATABASE_PATH = "database"
+IMAGE_TYPES = ("image/png", "image/jpeg", "image/webp")
 
 
 def upload_dir() -> Path:

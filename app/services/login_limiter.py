@@ -11,6 +11,8 @@ WINDOW_SECONDS = 60.0
 MAX_TRACKED_KEYS = 10000
 MAX_RESET_REQUESTS = 3
 RESET_WINDOW_SECONDS = 900.0
+MAX_PASSWORD_CHANGE_FAILURES = 5
+PASSWORD_CHANGE_WINDOW_SECONDS = 900.0
 
 
 def now() -> float:
@@ -136,4 +138,9 @@ class LoginLimiter:
 login_limiter = LoginLimiter()
 reset_request_limiter = LoginLimiter(
     scope="reset", max_attempts=MAX_RESET_REQUESTS, window_seconds=RESET_WINDOW_SECONDS
+)
+password_change_limiter = LoginLimiter(
+    scope="password",
+    max_attempts=MAX_PASSWORD_CHANGE_FAILURES,
+    window_seconds=PASSWORD_CHANGE_WINDOW_SECONDS,
 )

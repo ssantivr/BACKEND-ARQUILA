@@ -9,7 +9,11 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base, get_session
 from app.main import app
 from app.migrate import apply_migrations
-from app.services.login_limiter import login_limiter, reset_request_limiter
+from app.services.login_limiter import (
+    login_limiter,
+    password_change_limiter,
+    reset_request_limiter,
+)
 from app.services.undo_history import undo_history
 from tests.helpers import seed_access_catalog
 
@@ -74,3 +78,4 @@ def client(tmp_path, monkeypatch, engine):
     undo_history.clear()
     login_limiter.clear()
     reset_request_limiter.clear()
+    password_change_limiter.clear()

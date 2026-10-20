@@ -9,12 +9,15 @@ from app.mailer import Mailer, get_mailer
 from app.models import User
 from app.schemas import (
     LoginRequest,
+    PasswordChange,
     PasswordResetConfirm,
     PasswordResetRequest,
+    ProfileUpdate,
     RegisterRequest,
     UserRead,
 )
 from app.services.auth_service import SESSION_LIFETIME, AuthService
+from app.services.profile_service import ProfileService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -107,3 +110,23 @@ def confirm_password_reset(
 @router.get("/me", response_model=UserRead)
 def me(user: User = Depends(get_current_user)):
     return user
+
+
+@router.patch("/me", response_model=UserRead)
+def update_me(
+    data: ProfileUpdate,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    return ProfileService(session, user).update(data)
+
+
+@router.post("/change-password", status_code=204)
+def change_password(
+    data: PasswordChange,
+    user: User = Depends(get_current_user),
+    token: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+    service: AuthService = Depends(get_service),
+):
+    service.change_password(user, token or "", data)
+    return Response(status_code=204)

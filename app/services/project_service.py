@@ -15,7 +15,6 @@ from app.services.activity_log import record_activity
 from app.services.project_snapshot import SnapshotWriter, take
 from app.services.undo_history import undo_history
 
-IMAGE_TYPES = ("image/png", "image/jpeg", "image/webp")
 STATUS_AFTER_ARCHIVE = "active"
 COPY_SUFFIX = " (copia)"
 
@@ -191,7 +190,7 @@ class ProjectService:
         if file is None:
             raise NotFoundError("File not found in this project")
 
-        if file.mime_type not in IMAGE_TYPES:
+        if file.mime_type not in storage.IMAGE_TYPES:
             raise InvalidDataError("The cover must be a PNG, JPEG or WebP image")
 
     def _record(self, project: Project, action: str, **detail) -> None:
