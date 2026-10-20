@@ -118,12 +118,12 @@ class SnapshotWriter:
 
         if with_project_fields:
             fields = decode_values(Project, snapshot.get("project", {}))
+            # Checked before it is set: the query would otherwise flush the old file id.
+            fields["cover_file_id"] = self._own_file(fields.get("cover_file_id"))
 
             for field in PROJECT_FIELDS:
                 if field in fields:
                     setattr(self.project, field, fields[field])
-
-            self.project.cover_file_id = self._own_file(self.project.cover_file_id)
         else:
             self.project.cover_file_id = None
 
@@ -195,10 +195,9 @@ class SnapshotWriter:
         return plan
 
     def _room(self, values: dict[str, Any]) -> Room:
-        room = self._build(Room, {**values, "project_id": self.project.id})
-        room.unit_id = self._own_unit(room.unit_id)
+        unit_id = self._own_unit(values.get("unit_id"))
 
-        return room
+        return self._build(Room, {**values, "project_id": self.project.id, "unit_id": unit_id})
 
     def _own_file(self, file_id: int | None) -> int | None:
         if file_id is None:
