@@ -60,8 +60,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins(),
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Content-Type", "Authorization"],
+    expose_headers=["X-Total-Count"],
 )
 
 SECURITY_HEADERS = {
@@ -69,7 +70,9 @@ SECURITY_HEADERS = {
     "Referrer-Policy": "no-referrer",
     "Cache-Control": "no-store",
     "Content-Security-Policy": "frame-ancestors " + " ".join(["'self'", *allowed_origins()]),
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 }
+HSTS = "max-age=31536000; includeSubDomains"
 
 
 @app.middleware("http")
@@ -78,6 +81,10 @@ async def add_security_headers(request: Request, call_next):
 
     for name, value in SECURITY_HEADERS.items():
         response.headers.setdefault(name, value)
+
+    # Only where the deployment already promises HTTPS, or a plain-HTTP setup would break.
+    if os.environ.get("COOKIE_SECURE", "0") == "1":
+        response.headers.setdefault("Strict-Transport-Security", HSTS)
 
     return response
 
