@@ -22,6 +22,7 @@ from app.api import (
     projects,
     recommendations,
     rooms,
+    scene_settings,
     structure,
     summary,
     tasks,
@@ -129,6 +130,7 @@ app.include_router(versions.router)
 app.include_router(tasks.router)
 app.include_router(notifications.router)
 app.include_router(preferences.router)
+app.include_router(scene_settings.router)
 app.include_router(v1.router)
 
 

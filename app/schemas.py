@@ -603,10 +603,8 @@ class CameraPreset(BaseModel):
 
 
 class SceneSettingsUpdate(BaseModel):
-    lighting: Annotated[dict[ShortKey, FlatValue], Field(max_length=30)] = Field(
-        default_factory=dict
-    )
-    camera_presets: list[CameraPreset] = Field(default_factory=list, max_length=20)
+    lighting: Annotated[dict[ShortKey, FlatValue] | None, Field(max_length=30)] = None
+    camera_presets: Annotated[list[CameraPreset] | None, Field(max_length=20)] = None
 
 
 class SceneSettingsRead(BaseModel):
