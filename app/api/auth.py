@@ -1,6 +1,6 @@
 import os
 
-from fastapi import APIRouter, Cookie, Depends, Response, status
+from fastapi import APIRouter, Cookie, Depends, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import SESSION_COOKIE, get_current_user
@@ -119,6 +119,15 @@ def update_me(
     session: Session = Depends(get_session),
 ):
     return ProfileService(session, user).update(data)
+
+
+@router.post("/me/avatar", response_model=UserRead)
+def upload_avatar(
+    file: UploadFile,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    return ProfileService(session, user).upload_avatar(file.filename, file.file)
 
 
 @router.post("/change-password", status_code=204)

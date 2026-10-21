@@ -39,18 +39,25 @@ def detect_type(head: bytes) -> tuple[str, str] | None:
     return None
 
 
-def require_type(head: bytes) -> tuple[str, str]:
+def require_type(
+    head: bytes, allowed: tuple[str, ...] | None = None, rejection: str | None = None
+) -> tuple[str, str]:
     detected = detect_type(head)
 
     if detected is None:
-        raise UnsupportedFileError("Only PDF, PNG, JPEG and WebP files are supported")
+        raise UnsupportedFileError(rejection or "Only PDF, PNG, JPEG and WebP files are supported")
+
+    if allowed is not None and detected[0] not in allowed:
+        raise UnsupportedFileError(rejection or "This type of file is not accepted here")
 
     return detected
 
 
-def read(stream: BinaryIO) -> tuple[bytes, str]:
+def read(
+    stream: BinaryIO, allowed: tuple[str, ...] | None = None, rejection: str | None = None
+) -> tuple[bytes, str]:
     head = stream.read(16)
-    mime_type, _ = require_type(head)
+    mime_type, _ = require_type(head, allowed, rejection)
     data = head + stream.read(MAX_FILE_BYTES + 1 - len(head))
 
     if len(data) > MAX_FILE_BYTES:
@@ -59,9 +66,11 @@ def read(stream: BinaryIO) -> tuple[bytes, str]:
     return data, mime_type
 
 
-def store(stream: BinaryIO) -> tuple[str, str, int]:
+def store(
+    stream: BinaryIO, allowed: tuple[str, ...] | None = None, rejection: str | None = None
+) -> tuple[str, str, int]:
     head = stream.read(16)
-    mime_type, extension = require_type(head)
+    mime_type, extension = require_type(head, allowed, rejection)
     stored_name = f"{uuid4().hex}{extension}"
     directory = upload_dir()
     directory.mkdir(parents=True, exist_ok=True)

@@ -123,6 +123,10 @@ class Project(Base):
         CheckConstraint("status IN ('draft', 'active', 'archived')"),
         CheckConstraint("roof IN ('gable', 'flat')"),
         CheckConstraint("progress BETWEEN 0 AND 100"),
+        CheckConstraint(
+            "project_type IN ('house', 'apartment_building', 'commercial', 'mixed_use')"
+        ),
+        CheckConstraint("stage IN ('draft', 'in_progress', 'completed', 'archived')"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -133,6 +137,8 @@ class Project(Base):
     status: Mapped[str] = mapped_column(String(20), server_default="draft")
     roof: Mapped[str] = mapped_column(String(10), server_default="gable")
     progress: Mapped[int] = mapped_column(SmallInteger, server_default="0")
+    project_type: Mapped[str | None] = mapped_column(String(20))
+    stage: Mapped[str] = mapped_column(String(20), server_default="draft")
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cover_file_id: Mapped[int | None] = mapped_column(
         ForeignKey("files.id", ondelete="SET NULL", use_alter=True)
@@ -214,7 +220,8 @@ class File(Base):
     __table_args__ = (CheckConstraint("size_bytes >= 0"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    project_id: Mapped[int] = mapped_column(
+    # Empty for a profile picture, which belongs to the user in uploaded_by.
+    project_id: Mapped[int | None] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), index=True
     )
     uploaded_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))

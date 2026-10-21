@@ -11,6 +11,8 @@ from app.models import File, FileContent, User
 from app.repositories.file_repository import FileRepository
 from app.services.base import ProjectScopedService
 
+AVATAR_REJECTION = "The avatar must be a PNG, JPEG or WebP image"
+
 
 def clean_filename(filename: str | None) -> str:
     name = PureWindowsPath(PurePosixPath(filename or "").name).name.strip()
@@ -23,20 +25,32 @@ class FileService(ProjectScopedService):
         self.files = FileRepository(session)
 
     def create(self, project_id: int, filename: str | None, stream: BinaryIO) -> File:
+        self._ensure_project_exists(project_id)
+
         file = self._store(project_id, filename, stream)
         self._record("created", "file", project_id, file.id, file.filename)
 
         return file
 
-    def _store(self, project_id: int, filename: str | None, stream: BinaryIO) -> File:
-        self._ensure_project_exists(project_id)
+    def create_avatar(self, filename: str | None, stream: BinaryIO) -> File:
+        """A picture of the user, outside every project."""
+        return self._store(None, filename, stream, storage.IMAGE_TYPES, AVATAR_REJECTION)
 
+    def _store(
+        self,
+        project_id: int | None,
+        filename: str | None,
+        stream: BinaryIO,
+        allowed: tuple[str, ...] | None = None,
+        rejection: str | None = None,
+    ) -> File:
         if storage.keeps_files_in_database():
-            data, mime_type = storage.read(stream)
+            data, mime_type = storage.read(stream, allowed, rejection)
 
             return self.files.save(
                 File(
                     project_id=project_id,
+                    uploaded_by=self.user.id,
                     filename=clean_filename(filename),
                     storage_path=storage.DATABASE_PATH,
                     mime_type=mime_type,
@@ -45,12 +59,13 @@ class FileService(ProjectScopedService):
                 )
             )
 
-        stored_name, mime_type, size = storage.store(stream)
+        stored_name, mime_type, size = storage.store(stream, allowed, rejection)
 
         try:
             return self.files.save(
                 File(
                     project_id=project_id,
+                    uploaded_by=self.user.id,
                     filename=clean_filename(filename),
                     storage_path=stored_name,
                     mime_type=mime_type,
@@ -69,10 +84,16 @@ class FileService(ProjectScopedService):
     def get(self, file_id: int) -> File:
         file = self.files.get(file_id)
 
-        if file is None or not self._owns(file.project_id):
+        if file is None or not self._can_open(file):
             raise NotFoundError("File not found")
 
         return file
+
+    def _can_open(self, file: File) -> bool:
+        if file.project_id is None:
+            return file.uploaded_by == self.user.id
+
+        return self._owns(file.project_id)
 
     def content_data(self, file: File) -> bytes | None:
         if file.storage_path != storage.DATABASE_PATH:
@@ -98,4 +119,6 @@ class FileService(ProjectScopedService):
 
         self.files.delete(file)
         storage.remove(stored_name)
-        self._record("deleted", "file", project_id, file_id, filename)
+
+        if project_id is not None:
+            self._record("deleted", "file", project_id, file_id, filename)

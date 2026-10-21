@@ -414,7 +414,7 @@ class FileRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    project_id: int
+    project_id: int | None
     filename: str
     mime_type: str
     size_bytes: int
