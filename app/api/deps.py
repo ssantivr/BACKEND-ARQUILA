@@ -1,6 +1,7 @@
+import os
 from collections.abc import Callable
 
-from fastapi import Cookie, Depends, Header
+from fastapi import Cookie, Depends, Header, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_session
@@ -11,6 +12,22 @@ from app.services.auth_service import AuthService
 
 SESSION_COOKIE = "arquila_session"
 BEARER = "bearer"
+FORWARDED_FOR = "x-forwarded-for"
+
+
+def client_ip(request: Request) -> str | None:
+    """The address of the caller.
+
+    X-Forwarded-For is read only with TRUST_PROXY_HEADERS=1: anyone can send that header, so it
+    is trusted only where a proxy in front of the API (such as Vercel) writes it itself.
+    """
+    if os.environ.get("TRUST_PROXY_HEADERS", "0") == "1":
+        forwarded = request.headers.get(FORWARDED_FOR, "").split(",")[0].strip()
+
+        if forwarded:
+            return forwarded
+
+    return request.client.host if request.client else None
 
 
 def get_current_user(

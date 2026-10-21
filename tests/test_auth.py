@@ -1,9 +1,10 @@
 from datetime import timedelta
 
 import pytest
+from fastapi import Request
 from fastapi.testclient import TestClient
 
-from app.api.deps import SESSION_COOKIE
+from app.api.deps import SESSION_COOKIE, client_ip
 from app.main import app
 from app.services import auth_service, login_limiter
 from tests.helpers import PASSWORD, register
@@ -287,6 +288,51 @@ def test_successful_login_resets_the_failure_count(client, monkeypatch):
         assert login(client, password="wrong-password").status_code == 401
 
     assert login(client).status_code == 200
+
+
+def test_login_is_blocked_for_an_address_that_tries_many_accounts(client, monkeypatch):
+    monkeypatch.setattr(login_limiter, "now", lambda: 1000.0)
+    monkeypatch.setenv("TRUST_PROXY_HEADERS", "1")
+    attacker = {"X-Forwarded-For": "203.0.113.7"}
+    register(client)
+    client.post("/auth/logout")
+
+    # Under the limit of each email, but over the limit of the address.
+    for attempt in range(login_limiter.MAX_FAILED_ATTEMPTS_PER_IP):
+        response = client.post(
+            "/auth/login",
+            json={"email": f"user{attempt}@example.com", "password": "wrong-password"},
+            headers=attacker,
+        )
+        assert response.status_code == 401
+
+    blocked = client.post(
+        "/auth/login", json={"email": "ana@example.com", "password": PASSWORD}, headers=attacker
+    )
+    assert blocked.status_code == 429
+
+    # Ana, from her own address, is not locked out by what the attacker did.
+    allowed = client.post(
+        "/auth/login",
+        json={"email": "ana@example.com", "password": PASSWORD},
+        headers={"X-Forwarded-For": "198.51.100.4"},
+    )
+    assert allowed.status_code == 200
+
+
+def request_from(peer: str, forwarded_for: str | None = None) -> Request:
+    headers = [] if forwarded_for is None else [(b"x-forwarded-for", forwarded_for.encode())]
+
+    return Request({"type": "http", "headers": headers, "client": (peer, 1234)})
+
+
+def test_client_ip_ignores_forwarded_for_unless_the_proxy_is_trusted(monkeypatch):
+    monkeypatch.delenv("TRUST_PROXY_HEADERS", raising=False)
+    assert client_ip(request_from("10.0.0.1", "203.0.113.7")) == "10.0.0.1"
+
+    monkeypatch.setenv("TRUST_PROXY_HEADERS", "1")
+    assert client_ip(request_from("10.0.0.1", "203.0.113.7, 10.0.0.1")) == "203.0.113.7"
+    assert client_ip(request_from("10.0.0.1")) == "10.0.0.1"
 
 
 def test_old_failures_stop_counting(monkeypatch):

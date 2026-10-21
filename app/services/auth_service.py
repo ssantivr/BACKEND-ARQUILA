@@ -24,6 +24,7 @@ from app.repositories.user_repository import UserRepository
 from app.schemas import LoginRequest, PasswordChange, RegisterRequest
 from app.services.access_service import DEFAULT_ROLE
 from app.services.login_limiter import (
+    ip_login_limiter,
     login_limiter,
     password_change_limiter,
     reset_request_limiter,
@@ -70,16 +71,18 @@ class AuthService:
 
         return user, self._start_session(user)
 
-    def login(self, data: LoginRequest) -> tuple[User, str]:
-        user = self.authenticate(data)
+    def login(self, data: LoginRequest, client_ip: str | None = None) -> tuple[User, str]:
+        user = self.authenticate(data, client_ip)
 
         return user, self._start_session(user)
 
-    def issue_access_token(self, data: LoginRequest) -> tuple[str, int]:
+    def issue_access_token(
+        self, data: LoginRequest, client_ip: str | None = None
+    ) -> tuple[str, int]:
         if tokens.signing_secret() is None:
             raise NotConfiguredError("Este servidor no tiene configurada la emisión de tokens.")
 
-        user = self.authenticate(data)
+        user = self.authenticate(data, client_ip)
         token = tokens.create_access_token(user.id, user.password_hash)
 
         return token, int(tokens.ACCESS_TOKEN_LIFETIME.total_seconds())
@@ -99,10 +102,13 @@ class AuthService:
 
         return user
 
-    def authenticate(self, data: LoginRequest) -> User:
+    def authenticate(self, data: LoginRequest, client_ip: str | None = None) -> User:
         email = normalize_email(data.email)
+        ip_key = f"ip:{client_ip}" if client_ip else None
 
-        if login_limiter.is_blocked(email, self.users.session):
+        if login_limiter.is_blocked(email, self.users.session) or (
+            ip_key is not None and ip_login_limiter.is_blocked(ip_key, self.users.session)
+        ):
             logger.warning("login_blocked")
             raise TooManyAttemptsError("Too many failed attempts, try again in a minute")
 
@@ -111,6 +117,10 @@ class AuthService:
 
         if not security.verify_password(data.password, stored) or user is None:
             login_limiter.record_failure(email, self.users.session)
+
+            if ip_key is not None:
+                ip_login_limiter.record_failure(ip_key, self.users.session)
+
             logger.warning("login_failed")
             raise AuthenticationError("Invalid email or password")
 

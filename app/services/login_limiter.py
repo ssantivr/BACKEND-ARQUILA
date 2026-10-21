@@ -13,6 +13,10 @@ MAX_RESET_REQUESTS = 3
 RESET_WINDOW_SECONDS = 900.0
 MAX_PASSWORD_CHANGE_FAILURES = 5
 PASSWORD_CHANGE_WINDOW_SECONDS = 900.0
+# Failed logins from one address, whatever the emails tried: it stops someone who tries many
+# accounts, which the limit per email alone does not see.
+MAX_FAILED_ATTEMPTS_PER_IP = 30
+IP_WINDOW_SECONDS = 300.0
 
 
 def now() -> float:
@@ -136,6 +140,9 @@ class LoginLimiter:
 
 
 login_limiter = LoginLimiter()
+ip_login_limiter = LoginLimiter(
+    scope="login_ip", max_attempts=MAX_FAILED_ATTEMPTS_PER_IP, window_seconds=IP_WINDOW_SECONDS
+)
 reset_request_limiter = LoginLimiter(
     scope="reset", max_attempts=MAX_RESET_REQUESTS, window_seconds=RESET_WINDOW_SECONDS
 )

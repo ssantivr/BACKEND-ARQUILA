@@ -2,7 +2,7 @@ import os
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, create_engine, make_url
+from sqlalchemy import Engine, create_engine, event, make_url
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -10,6 +10,7 @@ from app.database import Base, get_session
 from app.main import app
 from app.migrate import apply_migrations
 from app.services.login_limiter import (
+    ip_login_limiter,
     login_limiter,
     password_change_limiter,
     reset_request_limiter,
@@ -28,6 +29,11 @@ def create_test_engine() -> Engine:
             "sqlite://",
             connect_args={"check_same_thread": False},
             poolclass=StaticPool,
+        )
+        # SQLite ignores foreign keys unless asked, so without this the suite would never see
+        # a reference to another project's row, nor a cascade, that PostgreSQL enforces.
+        event.listen(
+            engine, "connect", lambda connection, _: connection.execute("PRAGMA foreign_keys=ON")
         )
         Base.metadata.create_all(engine)
         seed_access_catalog(engine)
@@ -77,5 +83,6 @@ def client(tmp_path, monkeypatch, engine):
     app.dependency_overrides.clear()
     undo_history.clear()
     login_limiter.clear()
+    ip_login_limiter.clear()
     reset_request_limiter.clear()
     password_change_limiter.clear()

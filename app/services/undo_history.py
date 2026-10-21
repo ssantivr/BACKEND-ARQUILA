@@ -27,11 +27,16 @@ class DeletedRecord:
 
 
 def column_values(instance: Base, parent: Table | None = None) -> dict[str, Any]:
+    # A child leaves out the link to its parent's id, which the relationship sets again when it
+    # is restored. Only that one: a room's project_id also refers to plans.project_id (the key
+    # of the same project), and it has to be kept.
     return {
         column.name: getattr(instance, column.name)
         for column in instance.__table__.columns
         if not column.primary_key
-        and not any(key.column.table is parent for key in column.foreign_keys)
+        and not any(
+            key.column.table is parent and key.column.primary_key for key in column.foreign_keys
+        )
     }
 
 

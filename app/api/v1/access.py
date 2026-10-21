@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_api_user, require
+from app.api.deps import client_ip, get_api_user, require
 from app.database import get_session
 from app.dtos import AccessRead, AccessTokenRead, RoleAssignment
 from app.models import User
@@ -23,8 +23,8 @@ def describe(user: User) -> AccessRead:
 
 
 @router.post("/auth/token", response_model=AccessTokenRead)
-def issue_token(data: LoginRequest, session: Session = Depends(get_session)):
-    token, lifetime = AuthService(session).issue_access_token(data)
+def issue_token(data: LoginRequest, request: Request, session: Session = Depends(get_session)):
+    token, lifetime = AuthService(session).issue_access_token(data, client_ip(request))
 
     return AccessTokenRead(access_token=token, expires_in=lifetime)
 

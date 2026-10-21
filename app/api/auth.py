@@ -1,9 +1,9 @@
 import os
 
-from fastapi import APIRouter, Cookie, Depends, Response, UploadFile, status
+from fastapi import APIRouter, Cookie, Depends, Request, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import SESSION_COOKIE, get_current_user
+from app.api.deps import SESSION_COOKIE, client_ip, get_current_user
 from app.database import get_session
 from app.mailer import Mailer, get_mailer
 from app.models import User
@@ -65,10 +65,11 @@ def register(
 @router.post("/login", response_model=UserRead)
 def login(
     data: LoginRequest,
+    request: Request,
     response: Response,
     service: AuthService = Depends(get_service),
 ):
-    user, token = service.login(data)
+    user, token = service.login(data, client_ip(request))
     set_session_cookie(response, token)
     return user
 

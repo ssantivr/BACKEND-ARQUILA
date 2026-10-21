@@ -10,6 +10,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Integer,
     LargeBinary,
     Numeric,
@@ -21,6 +22,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -28,6 +30,34 @@ from app.database import Base
 JsonObject = JSON().with_variant(JSONB(), "postgresql")
 # SQLite only numbers a primary key by itself when it is a plain INTEGER.
 BigIdentifier = BigInteger().with_variant(Integer(), "sqlite")
+
+
+def same_project(
+    columns: list[str], target: str, name: str, ondelete: str, **options: Any
+) -> ForeignKeyConstraint:
+    """A reference to a row of the same project, as migration 027 declares it.
+
+    The first column points at `target.id`; the last one, the project, at `target.project_id`.
+    """
+    return ForeignKeyConstraint(
+        columns, [f"{target}.id", f"{target}.project_id"], name=name, ondelete=ondelete, **options
+    )
+
+
+@compiles(ForeignKeyConstraint, "sqlite")
+def _foreign_key_for_sqlite(constraint: ForeignKeyConstraint, compiler: Any, **kw: Any) -> str:
+    # SQLite has no ON DELETE SET NULL (column). The single-column key on the same column already
+    # empties it, and a composite key with an empty column is not checked: the result is the same.
+    if not (constraint.ondelete or "").upper().startswith("SET NULL ("):
+        return compiler.visit_foreign_key_constraint(constraint, **kw)
+
+    ondelete, constraint.ondelete = constraint.ondelete, None
+
+    try:
+        return compiler.visit_foreign_key_constraint(constraint, **kw)
+    finally:
+        constraint.ondelete = ondelete
+
 
 role_permissions = Table(
     "role_permissions",
@@ -127,9 +157,19 @@ class Project(Base):
             "project_type IN ('house', 'apartment_building', 'commercial', 'mixed_use')"
         ),
         CheckConstraint("stage IN ('draft', 'in_progress', 'completed', 'archived')"),
+        # Projects and files point at each other, so this key is added once both tables exist.
+        ForeignKeyConstraint(
+            ["cover_file_id", "id"],
+            ["files.id", "files.project_id"],
+            name="fk_projects_cover_same_project",
+            ondelete="SET NULL (cover_file_id)",
+            use_alter=True,
+        ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    # Explicit, because id is also a column of the cover's foreign key, and SQLAlchemy does not
+    # number a column that is part of one by itself.
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(160))
     description: Mapped[str | None] = mapped_column(Text)
@@ -217,7 +257,10 @@ class TerrainPoint(Base):
 
 class File(Base):
     __tablename__ = "files"
-    __table_args__ = (CheckConstraint("size_bytes >= 0"),)
+    __table_args__ = (
+        CheckConstraint("size_bytes >= 0"),
+        UniqueConstraint("id", "project_id", name="uq_files_id_project"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     # Empty for a profile picture, which belongs to the user in uploaded_by.
@@ -262,7 +305,16 @@ LAYER_CHECK = "layer IN ('structure', 'installations', 'finishes')"
 
 class Plan(Base):
     __tablename__ = "plans"
-    __table_args__ = (CheckConstraint(SURFACE_CHECK),)
+    __table_args__ = (
+        CheckConstraint(SURFACE_CHECK),
+        UniqueConstraint("id", "project_id", name="uq_plans_id_project"),
+        same_project(
+            ["file_id", "project_id"],
+            "files",
+            "fk_plans_file_same_project",
+            "SET NULL (file_id)",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(
@@ -275,8 +327,14 @@ class Plan(Base):
     surface: Mapped[str | None] = mapped_column(String(20))
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
-    rooms: Mapped[list["Room"]] = relationship(cascade="all, delete-orphan")
-    components: Mapped[list["StructuralComponent"]] = relationship(cascade="all, delete-orphan")
+    # foreign_keys: the keys of the same project also join on project_id, which a plan must not
+    # copy onto its rooms and components.
+    rooms: Mapped[list["Room"]] = relationship(
+        cascade="all, delete-orphan", foreign_keys="Room.plan_id"
+    )
+    components: Mapped[list["StructuralComponent"]] = relationship(
+        cascade="all, delete-orphan", foreign_keys="StructuralComponent.plan_id"
+    )
 
 
 class Room(Base):
@@ -287,6 +345,8 @@ class Room(Base):
         CheckConstraint("height_m > 0"),
         CheckConstraint(SURFACE_CHECK),
         CheckConstraint(ROOM_CATEGORY_CHECK),
+        UniqueConstraint("id", "project_id", name="uq_rooms_id_project"),
+        same_project(["plan_id", "project_id"], "plans", "fk_rooms_plan_same_project", "CASCADE"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -308,9 +368,15 @@ class Room(Base):
     surface: Mapped[str | None] = mapped_column(String(20))
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
-    spatial_elements: Mapped[list["SpatialElement"]] = relationship(overlaps="spatial_elements")
-    walkthrough_steps: Mapped[list["WalkthroughStep"]] = relationship(overlaps="walkthrough_steps")
-    renovation_logs: Mapped[list["RenovationLog"]] = relationship(overlaps="renovation_logs")
+    spatial_elements: Mapped[list["SpatialElement"]] = relationship(
+        overlaps="spatial_elements", foreign_keys="SpatialElement.room_id"
+    )
+    walkthrough_steps: Mapped[list["WalkthroughStep"]] = relationship(
+        overlaps="walkthrough_steps", foreign_keys="WalkthroughStep.room_id"
+    )
+    renovation_logs: Mapped[list["RenovationLog"]] = relationship(
+        overlaps="renovation_logs", foreign_keys="RenovationLog.room_id"
+    )
 
 
 class StructuralComponent(Base):
@@ -321,6 +387,12 @@ class StructuralComponent(Base):
         CheckConstraint("depth_m > 0"),
         CheckConstraint("height_m > 0"),
         CheckConstraint(SURFACE_CHECK),
+        same_project(
+            ["plan_id", "project_id"],
+            "plans",
+            "fk_structural_components_plan_same_project",
+            "CASCADE",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -341,7 +413,15 @@ class StructuralComponent(Base):
 
 class Elevation(Base):
     __tablename__ = "elevations"
-    __table_args__ = (CheckConstraint("orientation IN ('north', 'south', 'east', 'west')"),)
+    __table_args__ = (
+        CheckConstraint("orientation IN ('north', 'south', 'east', 'west')"),
+        same_project(
+            ["file_id", "project_id"],
+            "files",
+            "fk_elevations_file_same_project",
+            "SET NULL (file_id)",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(
@@ -485,6 +565,13 @@ class SpatialElement(Base):
         CheckConstraint("max_x_m > min_x_m"),
         CheckConstraint("max_y_m > min_y_m"),
         CheckConstraint("max_z_m > min_z_m"),
+        UniqueConstraint("id", "project_id", name="uq_spatial_elements_id_project"),
+        same_project(
+            ["room_id", "project_id"],
+            "rooms",
+            "fk_spatial_elements_room_same_project",
+            "SET NULL (room_id)",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -510,7 +597,9 @@ class SpatialElement(Base):
     external_id: Mapped[str | None] = mapped_column(String(120))
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
-    renovation_logs: Mapped[list["RenovationLog"]] = relationship(overlaps="renovation_logs")
+    renovation_logs: Mapped[list["RenovationLog"]] = relationship(
+        overlaps="renovation_logs", foreign_keys="RenovationLog.spatial_element_id"
+    )
 
 
 class WalkthroughStep(Base):
@@ -518,6 +607,12 @@ class WalkthroughStep(Base):
     __table_args__ = (
         CheckConstraint("position >= 0"),
         CheckConstraint("duration_ms BETWEEN 1000 AND 60000"),
+        same_project(
+            ["room_id", "project_id"],
+            "rooms",
+            "fk_walkthrough_steps_room_same_project",
+            "SET NULL (room_id)",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -542,6 +637,18 @@ class RenovationLog(Base):
         CheckConstraint("status IN ('planned', 'in_progress', 'completed', 'cancelled')"),
         CheckConstraint("estimated_cost >= 0"),
         CheckConstraint("planned_end >= planned_start"),
+        same_project(
+            ["room_id", "project_id"],
+            "rooms",
+            "fk_renovation_logs_room_same_project",
+            "SET NULL (room_id)",
+        ),
+        same_project(
+            ["spatial_element_id", "project_id"],
+            "spatial_elements",
+            "fk_renovation_logs_spatial_element_same_project",
+            "SET NULL (spatial_element_id)",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
