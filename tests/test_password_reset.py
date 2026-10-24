@@ -153,3 +153,15 @@ def test_production_without_smtp_refuses_instead_of_printing_the_link(client, mo
 
     assert response.status_code == 503
     assert "reset_token" not in capsys.readouterr().out
+
+
+def test_production_without_smtp_answers_the_same_for_known_and_unknown_emails(client, monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    register(client)
+
+    known = request_reset(client)
+    unknown = request_reset(client, "nobody@example.com")
+
+    assert known.status_code == unknown.status_code == 503
+    assert known.json() == unknown.json()
