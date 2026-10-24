@@ -2,11 +2,14 @@ import copy
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.main import app
 from app.models import ProjectVersion
+from app.repositories.version_repository import VersionRepository
+from app.services.project_snapshot import SnapshotWriter
 from tests.helpers import register
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"fake image data"
@@ -379,3 +382,128 @@ def test_a_version_with_rows_that_take_never_writes_is_rejected(client, engine, 
     assert client.get(f"/versions/{version['id']}").status_code == 422
     assert client.post(f"/versions/{version['id']}/restore").status_code == 422
     assert len(client.get(f"/projects/{project_id}/versions").json()) == 1
+
+
+def changed_after_saving(client, project_id):
+    """Saves a version, then changes the project, so that a restore would undo the change."""
+    fill(client, project_id)
+    version = client.post(f"/projects/{project_id}/versions", json={"label": "V1"}).json()
+
+    for material in client.get(f"/projects/{project_id}/materials").json():
+        client.delete(f"/materials/{material['id']}")
+
+    return version, contents(client, project_id)
+
+
+def assert_nothing_restored(client, project_id, before):
+    assert contents(client, project_id) == before
+    assert [v["label"] for v in client.get(f"/projects/{project_id}/versions").json()] == ["V1"]
+    activity = client.get(f"/projects/{project_id}/activity").json()["items"]
+    assert "version_restored" not in [item["action"] for item in activity]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda snapshot: snapshot["project"].update(progress=150),
+        lambda snapshot: snapshot["materials"].append(dict(snapshot["materials"][0])),
+    ],
+    ids=["progress-over-100", "repeated-material-name"],
+)
+def test_a_version_that_breaks_a_rule_of_the_database_is_rejected_whole(
+    client, engine, project_id, change
+):
+    version, before = changed_after_saving(client, project_id)
+    store(engine, version["id"], lambda snapshot: change(snapshot) or snapshot)
+
+    assert client.post(f"/versions/{version['id']}/restore").status_code == 422
+    assert_nothing_restored(client, project_id, before)
+
+
+def test_a_failure_while_rebuilding_leaves_everything_as_it_was(client, project_id, monkeypatch):
+    version, before = changed_after_saving(client, project_id)
+
+    def broken_plan(self, values):
+        raise RuntimeError("simulated failure while rebuilding a plan")
+
+    monkeypatch.setattr(SnapshotWriter, "_plan", broken_plan)
+
+    with pytest.raises(RuntimeError):
+        client.post(f"/versions/{version['id']}/restore")
+
+    monkeypatch.undo()
+    assert_nothing_restored(client, project_id, before)
+
+
+def test_a_failure_while_committing_leaves_everything_as_it_was(client, project_id, monkeypatch):
+    version, before = changed_after_saving(client, project_id)
+    apply = SnapshotWriter.apply
+
+    def apply_then_lose_the_connection(self, snapshot, **options):
+        apply(self, snapshot, **options)
+
+        def commit():
+            raise OperationalError("COMMIT", {}, Exception("simulated: the connection was lost"))
+
+        # Only the session of this request: the writes are done and the commit never happens.
+        self.session.commit = commit
+
+    monkeypatch.setattr(SnapshotWriter, "apply", apply_then_lose_the_connection)
+
+    with pytest.raises(OperationalError):
+        client.post(f"/versions/{version['id']}/restore")
+
+    monkeypatch.undo()
+    assert_nothing_restored(client, project_id, before)
+
+
+def test_a_backup_that_takes_a_number_in_use_is_a_conflict(client, project_id, monkeypatch):
+    version, before = changed_after_saving(client, project_id)
+    # What two saves at the same time would do: both pick the number that comes next.
+    monkeypatch.setattr(VersionRepository, "next_number", lambda self, project_id: 1)
+
+    response = client.post(f"/versions/{version['id']}/restore")
+
+    assert response.status_code == 409
+    monkeypatch.undo()
+    assert_nothing_restored(client, project_id, before)
+
+
+def test_restore_drops_links_to_files_deleted_after_saving(client, project_id):
+    file = fill(client, project_id)
+    client.post(
+        f"/projects/{project_id}/elevations",
+        json={"title": "Sur", "orientation": "south", "file_id": file["id"]},
+    )
+    version = client.post(f"/projects/{project_id}/versions").json()
+    client.delete(f"/files/{file['id']}")
+
+    response = client.post(f"/versions/{version['id']}/restore")
+
+    assert response.status_code == 200
+    assert response.json()["cover_file_id"] is None
+    assert [p["file_id"] for p in client.get(f"/projects/{project_id}/plans").json()] == [None]
+    elevations = client.get(f"/projects/{project_id}/elevations").json()
+    assert {e["title"]: e["file_id"] for e in elevations} == {"Norte": None, "Sur": None}
+
+
+def test_restore_does_not_link_a_file_of_another_project(client, engine, project_id):
+    fill(client, project_id)
+    other = client.post("/projects", json={"name": "Otra casa"}).json()["id"]
+    foreign = client.post(
+        f"/projects/{other}/files", files={"file": ("other.png", PNG, "image/png")}
+    ).json()
+    version = client.post(f"/projects/{project_id}/versions").json()
+
+    def point_at_the_other_file(snapshot):
+        snapshot["plans"][0]["file_id"] = foreign["id"]
+        snapshot["project"]["cover_file_id"] = foreign["id"]
+        return snapshot
+
+    store(engine, version["id"], point_at_the_other_file)
+
+    response = client.post(f"/versions/{version['id']}/restore")
+
+    assert response.status_code == 200
+    assert response.json()["cover_file_id"] is None
+    assert [p["file_id"] for p in client.get(f"/projects/{project_id}/plans").json()] == [None]

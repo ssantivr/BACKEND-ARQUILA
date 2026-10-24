@@ -1,11 +1,14 @@
+from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session
 
-from app.errors import NotFoundError
+from app.errors import ConflictError, InvalidDataError, NotFoundError
 from app.models import Project, ProjectVersion, User
 from app.repositories.version_repository import VersionRepository
 from app.services.base import ProjectScopedService
 from app.services.project_snapshot import SnapshotWriter, check_format, take
 from app.services.undo_history import undo_history
+
+CANNOT_RESTORE = "This version cannot be restored: its contents break a rule of the project data"
 
 
 class VersionService(ProjectScopedService):
@@ -46,11 +49,28 @@ class VersionService(ProjectScopedService):
         # Checked before the backup, so that a version that cannot be read leaves nothing behind.
         check_format(version.snapshot)
 
-        # The current state is saved first, so that a restore can itself be undone.
-        backup = self._save(project, f"Before restoring version {version.version_number}")
+        # The backup and the restore are one transaction: if either fails, neither stays.
+        try:
+            # The current state is saved first, so that a restore can itself be undone.
+            backup = self.versions.add(
+                self._new(project, f"Before restoring version {version.version_number}")
+            )
+        except IntegrityError as error:
+            # Another version took the same number in the meantime.
+            self.session.rollback()
+            raise ConflictError("Another version was saved at the same time: try again") from error
 
-        SnapshotWriter(self.session, project).apply(version.snapshot)
-        self.session.commit()
+        try:
+            SnapshotWriter(self.session, project).apply(version.snapshot)
+            self.session.commit()
+        except (IntegrityError, DataError) as error:
+            # What only the database checks, such as a repeated name or a rule of a column.
+            self.session.rollback()
+            raise InvalidDataError(CANNOT_RESTORE) from error
+        except Exception:
+            self.session.rollback()
+            raise
+
         self.session.refresh(project)
 
         # What was deleted belongs to a state that no longer exists.
@@ -68,14 +88,15 @@ class VersionService(ProjectScopedService):
         return project
 
     def _save(self, project: Project, label: str | None) -> ProjectVersion:
-        return self.versions.save(
-            ProjectVersion(
-                project_id=project.id,
-                version_number=self.versions.next_number(project.id),
-                label=label,
-                snapshot=take(project),
-                created_by=self.user.id,
-            )
+        return self.versions.save(self._new(project, label))
+
+    def _new(self, project: Project, label: str | None) -> ProjectVersion:
+        return ProjectVersion(
+            project_id=project.id,
+            version_number=self.versions.next_number(project.id),
+            label=label,
+            snapshot=take(project),
+            created_by=self.user.id,
         )
 
     def _project(self, project_id: int) -> Project:

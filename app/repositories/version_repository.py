@@ -23,6 +23,12 @@ class VersionRepository:
         )
         return (last or 0) + 1
 
+    def add(self, version: ProjectVersion) -> ProjectVersion:
+        # Flushed, not committed: the caller ends the transaction.
+        self.session.add(version)
+        self.session.flush()
+        return version
+
     def save(self, version: ProjectVersion) -> ProjectVersion:
         self.session.add(version)
         self.session.commit()
