@@ -14,6 +14,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.database import Base
+from app.errors import InvalidDataError
 from app.models import (
     Elevation,
     File,
@@ -47,6 +48,7 @@ FLAT_COLLECTIONS: dict[str, type[Base]] = {
 
 # Links to the parent rows: the new rows get them from where they are placed.
 PARENT_COLUMNS = ("project_id", "plan_id", "terrain_id")
+UNREADABLE = "This version is not in a format the server can read"
 
 
 def values_of(instance: Base) -> dict[str, Any]:
@@ -94,7 +96,56 @@ def take(project: Project) -> dict[str, Any]:
     }
 
 
+def check_rows(rows: Any, model: type[Base], nested: tuple[str, ...] = ()) -> list[dict]:
+    # take() writes neither ids nor links to the parent, and a key that the model does not have
+    # would only fail later, when the row is built.
+    allowed = {column.name for column in model.__table__.columns} - {"id", *PARENT_COLUMNS}
+    allowed |= set(nested)
+
+    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        raise InvalidDataError(UNREADABLE)
+
+    if any(set(row) - allowed for row in rows):
+        raise InvalidDataError(UNREADABLE)
+
+    return rows
+
+
+def check_format(snapshot: Any) -> None:
+    """Accepts only the document that take() writes; anything else raises InvalidDataError.
+
+    A collection that is missing counts as empty: only a value of the wrong type is rejected.
+    """
+    if not isinstance(snapshot, dict):
+        raise InvalidDataError(UNREADABLE)
+
+    # True and 1.0 are equal to 1 in Python, so the type is checked as well as the value.
+    if type(snapshot.get("format")) is not int or snapshot["format"] != SNAPSHOT_FORMAT:
+        raise InvalidDataError(UNREADABLE)
+
+    project = snapshot.get("project", {})
+
+    if not isinstance(project, dict) or set(project) - set(PROJECT_FIELDS):
+        raise InvalidDataError(UNREADABLE)
+
+    for terrain in check_rows(snapshot.get("terrains", []), Terrain, ("points",)):
+        check_rows(terrain.get("points", []), TerrainPoint)
+
+    for plan in check_rows(snapshot.get("plans", []), Plan, ("rooms", "components")):
+        check_rows(plan.get("rooms", []), Room)
+        check_rows(plan.get("components", []), StructuralComponent)
+
+    for name, model in FLAT_COLLECTIONS.items():
+        check_rows(snapshot.get(name, []), model)
+
+    scene = snapshot.get("scene_settings")
+
+    if scene is not None:
+        check_rows([scene], SceneSettings)
+
+
 def contents_of(snapshot: dict[str, Any]) -> dict[str, int]:
+    check_format(snapshot)
     plans = snapshot.get("plans", [])
 
     return {
@@ -114,6 +165,7 @@ class SnapshotWriter:
         self.project = project
 
     def apply(self, snapshot: dict[str, Any], with_project_fields: bool = True) -> None:
+        check_format(snapshot)
         self._clear()
 
         if with_project_fields:

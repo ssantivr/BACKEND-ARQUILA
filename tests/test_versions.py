@@ -1,7 +1,12 @@
+import copy
+
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.main import app
+from app.models import ProjectVersion
 from tests.helpers import register
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"fake image data"
@@ -294,3 +299,83 @@ def test_restore_unlinks_the_spatial_elements_of_replaced_rooms(client, project_
     assert kept.status_code == 200
     assert kept.json()["room_id"] is None
     assert [r["name"] for r in client.get(f"/projects/{project_id}/rooms").json()] == ["Baño"]
+
+
+def store(engine, version_id, change):
+    """Writes a snapshot that the API itself would never save."""
+    with Session(engine) as session:
+        version = session.get(ProjectVersion, version_id)
+        version.snapshot = change(copy.deepcopy(version.snapshot))
+        # True and 1.0 compare equal to 1, so the change has to be marked to be written at all.
+        flag_modified(version, "snapshot")
+        session.commit()
+
+
+def test_a_version_in_an_unknown_format_is_listed_empty_and_cannot_be_opened(
+    client, engine, project_id
+):
+    fill(client, project_id)
+    version = client.post(f"/projects/{project_id}/versions").json()
+    # What earlier seeds wrote: a summary with counts instead of the rows.
+    store(engine, version["id"], lambda _: {"name": "Demo House", "plans": 1, "rooms": 1})
+
+    listed = client.get(f"/projects/{project_id}/versions")
+
+    assert listed.status_code == 200
+    assert [item["contents"] for item in listed.json()] == [{}]
+    assert client.get(f"/versions/{version['id']}").status_code == 422
+    assert client.post(f"/versions/{version['id']}/restore").status_code == 422
+    # Rejected before the backup is saved, so nothing is left behind.
+    assert len(client.get(f"/projects/{project_id}/versions").json()) == 1
+
+
+def test_a_version_without_some_collections_counts_them_as_empty(client, engine, project_id):
+    fill(client, project_id)
+    saved = contents(client, project_id)
+    version = client.post(f"/projects/{project_id}/versions").json()
+
+    def leave_out(snapshot):
+        for name in ("tasks", "walkthrough_points", "scene_settings"):
+            del snapshot[name]
+        return snapshot
+
+    store(engine, version["id"], leave_out)
+
+    listed = client.get(f"/projects/{project_id}/versions").json()
+    assert listed[0]["contents"]["tasks"] == 0
+    assert listed[0]["contents"]["walkthrough_points"] == 0
+    assert listed[0]["contents"]["materials"] == 1
+
+    assert client.post(f"/versions/{version['id']}/restore").status_code == 200
+    assert contents(client, project_id) == saved
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda snapshot: snapshot["materials"][0].update(id=1),
+        lambda snapshot: snapshot["plans"][0]["rooms"][0].update(project_id=1),
+        lambda snapshot: snapshot["terrains"][0]["points"][0].update(terrain_id=1),
+        lambda snapshot: snapshot["materials"][0].update(not_a_column=1),
+        lambda snapshot: snapshot.update(plans={}),
+        lambda snapshot: snapshot.update(format=True),
+        lambda snapshot: snapshot.update(format=1.0),
+    ],
+    ids=[
+        "id",
+        "project_id",
+        "terrain_id",
+        "column-not-in-the-model",
+        "plans-not-a-list",
+        "format-true",
+        "format-float",
+    ],
+)
+def test_a_version_with_rows_that_take_never_writes_is_rejected(client, engine, project_id, change):
+    fill(client, project_id)
+    version = client.post(f"/projects/{project_id}/versions").json()
+    store(engine, version["id"], lambda snapshot: change(snapshot) or snapshot)
+
+    assert client.get(f"/versions/{version['id']}").status_code == 422
+    assert client.post(f"/versions/{version['id']}/restore").status_code == 422
+    assert len(client.get(f"/projects/{project_id}/versions").json()) == 1

@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.database import get_session
+from app.errors import InvalidDataError
 from app.models import ProjectVersion, User
 from app.schemas import ProjectRead, VersionCreate, VersionDetail, VersionRead
 from app.services.project_snapshot import contents_of
@@ -18,7 +19,7 @@ def get_service(
     return VersionService(session, user)
 
 
-def summary_of(version: ProjectVersion) -> dict:
+def summary_of(version: ProjectVersion, contents: dict[str, int] | None = None) -> dict:
     return {
         "id": version.id,
         "project_id": version.project_id,
@@ -26,13 +27,22 @@ def summary_of(version: ProjectVersion) -> dict:
         "label": version.label,
         "created_by": version.created_by,
         "created_at": version.created_at,
-        "contents": contents_of(version.snapshot),
+        "contents": contents_of(version.snapshot) if contents is None else contents,
     }
+
+
+def listed(version: ProjectVersion) -> dict:
+    # One version that cannot be read must not hide the others: it is listed as empty, and
+    # opening or restoring it answers 422.
+    try:
+        return summary_of(version)
+    except InvalidDataError:
+        return summary_of(version, contents={})
 
 
 @router.get("/projects/{project_id}/versions", response_model=list[VersionRead])
 def list_versions(project_id: int, service: VersionService = Depends(get_service)):
-    return [summary_of(version) for version in service.list(project_id)]
+    return [listed(version) for version in service.list(project_id)]
 
 
 @router.post(
