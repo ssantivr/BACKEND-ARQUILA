@@ -7,10 +7,13 @@ copied: they are only referenced, and a reference to a file that no longer
 belongs to the project is dropped when the document is applied.
 """
 
+import math
 from collections.abc import Iterable
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import BigInteger, Column, Numeric, SmallInteger, select, update
 from sqlalchemy.orm import Session
 
 from app.database import Base
@@ -49,6 +52,7 @@ FLAT_COLLECTIONS: dict[str, type[Base]] = {
 # Links to the parent rows: the new rows get them from where they are placed.
 PARENT_COLUMNS = ("project_id", "plan_id", "terrain_id")
 UNREADABLE = "This version is not in a format the server can read"
+WRONG_VALUE = "This version holds a value that does not fit its field"
 
 
 def values_of(instance: Base) -> dict[str, Any]:
@@ -96,6 +100,92 @@ def take(project: Project) -> dict[str, Any]:
     }
 
 
+def parses(python_type: type[date], value: str) -> bool:
+    try:
+        python_type.fromisoformat(value)
+    except ValueError:
+        return False
+
+    return True
+
+
+def integer_limit(column_type: Any) -> int:
+    # The sizes of PostgreSQL; SQLite would take any integer and only PostgreSQL would refuse it.
+    if isinstance(column_type, SmallInteger):
+        return 2**15
+
+    if isinstance(column_type, BigInteger):
+        return 2**63
+
+    return 2**31
+
+
+def fits_numeric(column_type: Numeric, value: Any) -> bool:
+    if isinstance(value, (int, float)):
+        value = str(value)
+
+    if not isinstance(value, str):
+        return False
+
+    try:
+        number = Decimal(value)
+    except InvalidOperation:
+        return False
+
+    if not number.is_finite():
+        return False
+
+    if column_type.precision is None:
+        return True
+
+    # More digits left of the point would overflow the column in PostgreSQL; SQLite takes them.
+    return abs(number) < Decimal(10) ** (column_type.precision - (column_type.scale or 0))
+
+
+def fits(column: Column, value: Any) -> bool:
+    """Whether a value of a snapshot can be written to its column, the way decode_values reads it.
+
+    Checked here rather than left to the database, so that SQLite, which takes almost anything,
+    and PostgreSQL answer the same.
+    """
+    if value is None:
+        return bool(column.nullable)
+
+    try:
+        python_type = column.type.python_type
+    except NotImplementedError:
+        return True
+
+    if python_type is bool:
+        return isinstance(value, bool)
+
+    # True and False are ints in Python, but they are not numbers of a project.
+    if isinstance(value, bool):
+        return False
+
+    if python_type is int:
+        limit = integer_limit(column.type)
+        return isinstance(value, int) and -limit <= value < limit
+
+    if python_type is float:
+        return isinstance(value, (int, float)) and math.isfinite(value)
+
+    if python_type is Decimal:
+        return fits_numeric(column.type, value)
+
+    if python_type is str:
+        length = getattr(column.type, "length", None)
+        return isinstance(value, str) and (length is None or len(value) <= length)
+
+    if python_type in (datetime, date):
+        return isinstance(value, str) and parses(python_type, value)
+
+    if python_type in (dict, list):
+        return isinstance(value, (dict, list))
+
+    return True
+
+
 def check_rows(rows: Any, model: type[Base], nested: tuple[str, ...] = ()) -> list[dict]:
     # take() writes neither ids nor links to the parent, and a key that the model does not have
     # would only fail later, when the row is built.
@@ -107,6 +197,12 @@ def check_rows(rows: Any, model: type[Base], nested: tuple[str, ...] = ()) -> li
 
     if any(set(row) - allowed for row in rows):
         raise InvalidDataError(UNREADABLE)
+
+    columns = model.__table__.columns
+
+    for row in rows:
+        if not all(fits(columns[key], value) for key, value in row.items() if key not in nested):
+            raise InvalidDataError(WRONG_VALUE)
 
     return rows
 
@@ -127,6 +223,8 @@ def check_format(snapshot: Any) -> None:
 
     if not isinstance(project, dict) or set(project) - set(PROJECT_FIELDS):
         raise InvalidDataError(UNREADABLE)
+
+    check_rows([project], Project)
 
     for terrain in check_rows(snapshot.get("terrains", []), Terrain, ("points",)):
         check_rows(terrain.get("points", []), TerrainPoint)

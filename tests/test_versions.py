@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.main import app
-from app.models import ProjectVersion
+from app.models import Project, ProjectVersion
 from app.repositories.version_repository import VersionRepository
-from app.services.project_snapshot import SnapshotWriter
+from app.services.project_snapshot import SnapshotWriter, check_format, take
 from tests.helpers import register
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"fake image data"
@@ -507,3 +507,85 @@ def test_restore_does_not_link_a_file_of_another_project(client, engine, project
     assert response.status_code == 200
     assert response.json()["cover_file_id"] is None
     assert [p["file_id"] for p in client.get(f"/projects/{project_id}/plans").json()] == [None]
+
+
+def material(snapshot, **values):
+    snapshot["materials"][0].update(values)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda snapshot: material(snapshot, created_at="not a date"),
+        lambda snapshot: snapshot["project"].update(progress="abc"),
+        lambda snapshot: snapshot["project"].update(progress=True),
+        lambda snapshot: snapshot["project"].update(progress=2**15),
+        lambda snapshot: snapshot["plans"][0].update(file_id=2**31),
+        lambda snapshot: snapshot["plans"][0].update(file_id=-(2**31) - 1),
+        lambda snapshot: material(snapshot, name=12),
+        lambda snapshot: material(snapshot, name=None),
+        lambda snapshot: material(snapshot, name="x" * 161),
+        lambda snapshot: material(snapshot, unit_cost="x"),
+        lambda snapshot: material(snapshot, quantity=True),
+        lambda snapshot: material(snapshot, unit_cost="NaN"),
+        lambda snapshot: material(snapshot, unit_cost="Infinity"),
+        lambda snapshot: material(snapshot, unit_cost="123456789012"),
+        lambda snapshot: snapshot["plans"][0].update(file_id="1"),
+    ],
+    ids=[
+        "date-that-is-not-a-date",
+        "integer-as-text",
+        "integer-as-bool",
+        "small-integer-out-of-range",
+        "integer-over-the-range",
+        "integer-under-the-range",
+        "text-as-number",
+        "required-text-as-null",
+        "text-longer-than-the-column",
+        "numeric-as-word",
+        "numeric-as-bool",
+        "numeric-nan",
+        "numeric-infinity",
+        "numeric-too-large-for-the-column",
+        "reference-as-text",
+    ],
+)
+def test_a_value_of_the_wrong_type_is_rejected_before_anything_changes(
+    client, engine, project_id, change
+):
+    version, before = changed_after_saving(client, project_id)
+    store(engine, version["id"], lambda snapshot: change(snapshot) or snapshot)
+
+    assert client.get(f"/versions/{version['id']}").status_code == 422
+    assert client.post(f"/versions/{version['id']}/restore").status_code == 422
+    assert_nothing_restored(client, project_id, before)
+
+
+def test_what_take_writes_passes_the_check(client, engine, project_id):
+    fill(client, project_id)
+    responses = [
+        client.post(
+            f"/projects/{project_id}/tasks",
+            json={"title": "Revisar", "due_date": "2026-11-06", "progress": 40},
+        ),
+        client.post(
+            f"/projects/{project_id}/walkthrough-points",
+            json={"name": "Entrada", "position": [0, 1.6, 5], "target": [0, 1.2, 0]},
+        ),
+        client.put(
+            f"/projects/{project_id}/scene-settings",
+            json={
+                "lighting": {"sun": True, "hour": 10.5},
+                "camera_presets": [{"name": "Frente", "position": [0, 2, 10], "target": [0, 1, 0]}],
+            },
+        ),
+    ]
+    assert [response.status_code for response in responses] == [201, 201, 200]
+
+    with Session(engine) as session:
+        snapshot = take(session.get(Project, project_id))
+
+    # Every collection holds something, so every column of the check is met at least once.
+    assert all(snapshot[name] for name in ("terrains", "plans", "materials", "elevations"))
+    assert all(snapshot[name] for name in ("tasks", "walkthrough_points", "scene_settings"))
+    check_format(snapshot)

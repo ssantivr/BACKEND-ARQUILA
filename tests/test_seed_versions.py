@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.migrate import seed_file
 from app.models import Project, ProjectVersion
-from app.services.project_snapshot import take
+from app.services.project_snapshot import check_format, take
 from app.services.undo_history import encode_value
 
 pytestmark = pytest.mark.skipif(
@@ -141,3 +141,16 @@ def test_the_seed_versions_open_and_restore_through_the_api(client, seeded):
 
     response = client.post("/versions/1/restore")
     assert response.status_code == 200, response.text
+
+
+def test_what_take_writes_for_the_seed_projects_passes_the_check(seeded):
+    with Session(seeded) as session:
+        projects = session.scalars(select(Project).order_by(Project.id)).all()
+        assert [project.name for project in projects] == [
+            "Casa Los Arrayanes",
+            "Edificio Mirador",
+            "Cabaña Mindo",
+        ]
+
+        for project in projects:
+            check_format(take(project))
