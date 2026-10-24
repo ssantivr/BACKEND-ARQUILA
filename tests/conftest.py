@@ -13,6 +13,7 @@ from app.services.login_limiter import (
     ip_login_limiter,
     login_limiter,
     password_change_limiter,
+    register_ip_limiter,
     reset_request_limiter,
 )
 from app.services.undo_history import undo_history
@@ -86,3 +87,4 @@ def client(tmp_path, monkeypatch, engine):
     ip_login_limiter.clear()
     reset_request_limiter.clear()
     password_change_limiter.clear()
+    register_ip_limiter.clear()

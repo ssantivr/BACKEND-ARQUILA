@@ -27,6 +27,7 @@ from app.services.login_limiter import (
     ip_login_limiter,
     login_limiter,
     password_change_limiter,
+    register_ip_limiter,
     reset_request_limiter,
 )
 from app.services.notification_service import notify
@@ -50,8 +51,18 @@ class AuthService:
         self.resets = PasswordResetRepository(session)
         self.roles = RoleRepository(session)
 
-    def register(self, data: RegisterRequest) -> tuple[User, str]:
+    def register(self, data: RegisterRequest, client_ip: str | None = None) -> tuple[User, str]:
         email = normalize_email(data.email)
+        ip_key = f"ip:{client_ip}" if client_ip else None
+
+        # Checked before the email, so a blocked address learns nothing about which ones exist.
+        # Every attempt counts, and nothing resets the count: changing the email does not help.
+        if ip_key is not None:
+            if register_ip_limiter.is_blocked(ip_key, self.users.session):
+                logger.warning("register_blocked")
+                raise TooManyAttemptsError("Too many failed attempts, try again later")
+
+            register_ip_limiter.record_failure(ip_key, self.users.session)
 
         if self.users.get_by_email(email) is not None:
             raise ConflictError("Email is already registered")

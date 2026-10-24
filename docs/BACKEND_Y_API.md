@@ -284,8 +284,8 @@ No se registran contraseñas, correos, cookies ni los parámetros de la direcci�
 
 ### Limitaciones conocidas
 
-- El límite de intentos de inicio de sesión se cuenta por correo, no por dirección IP, y por defecto vive en memoria: se reinicia al reiniciar el servidor y no se comparte entre varios procesos (con `STATE_STORAGE=database` los intentos se guardan en la tabla `runtime_state` y la cola se reconstruye en cada petición).
-- El registro no tiene límite de solicitudes y responde que un correo ya está registrado, así que permite averiguar si un correo tiene cuenta.
+- El límite de intentos de inicio de sesión se cuenta por correo (5 fallos por minuto) y por dirección IP (30 fallos cada 5 minutos). La dirección es la del cliente solo con `TRUST_PROXY_HEADERS=1` detrás de un proxy que escriba `X-Forwarded-For`; si no, es la de quien conecta. Por defecto vive en memoria: se reinicia al reiniciar el servidor y no se comparte entre varios procesos (con `STATE_STORAGE=database` los intentos se guardan en la tabla `runtime_state` y la cola se reconstruye en cada petición).
+- El registro admite `REGISTRATION_LIMIT_PER_HOUR` intentos por dirección IP cada hora (10 por defecto), logren o no crear la cuenta; al pasarlos responde 429 sin mirar el correo. No se limita por correo, para que nadie pueda impedir que otra persona se registre con el suyo. Fuera de ese límite sigue respondiendo que un correo ya está registrado, así que permite averiguar si un correo tiene cuenta: evitarlo exige verificar el correo.
 - La documentación automática de la API (`/docs`) queda accesible sin sesión. No muestra datos, solo la lista de operaciones.
 - No hay un límite de archivos por proyecto, solo de tamaño por archivo.
 - La aplicación no fuerza HTTPS: en un despliegue real debe ir detrás de un servidor que lo haga, con `COOKIE_SECURE=1`.

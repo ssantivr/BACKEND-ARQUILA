@@ -54,10 +54,11 @@ def set_session_cookie(response: Response, token: str) -> None:
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 def register(
     data: RegisterRequest,
+    request: Request,
     response: Response,
     service: AuthService = Depends(get_service),
 ):
-    user, token = service.register(data)
+    user, token = service.register(data, client_ip(request))
     set_session_cookie(response, token)
     return user
 

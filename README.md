@@ -49,6 +49,7 @@ Copiar `.env.example` a `.env` y completarlo. El archivo `.env` no se sube al re
 | `API_PORT` | Puerto de la API. | `8000` |
 | `UPLOAD_DIR` | Carpeta de los archivos subidos. | `uploads` |
 | `STATE_STORAGE` | `memory` guarda en memoria el historial de «Deshacer» y los límites de intentos; `database` los guarda en PostgreSQL. **En producción usar `database`.** | `memory` |
+| `REGISTRATION_LIMIT_PER_HOUR` | Registros que admite cada dirección IP por hora, logren o no crear la cuenta. Un valor que no sea un entero mayor que 0 vuelve al de por defecto. Se lee al arrancar. | `10` |
 | `FILE_STORAGE` | `disk` guarda los archivos en `UPLOAD_DIR`; `database` los guarda en PostgreSQL. | `disk` |
 | `COOKIE_SECURE` | `1` para enviar la cookie de sesión solo por HTTPS. | `0` |
 | `COOKIE_SAMESITE` | `lax`, `strict` o `none`. Usar `none` solo si la interfaz está en otro sitio; obliga a HTTPS. | `lax` |

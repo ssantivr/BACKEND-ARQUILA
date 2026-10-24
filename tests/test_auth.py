@@ -320,6 +320,103 @@ def test_login_is_blocked_for_an_address_that_tries_many_accounts(client, monkey
     assert allowed.status_code == 200
 
 
+def sign_up(client, email, address):
+    return client.post(
+        "/auth/register",
+        json={"name": "Ana", "email": email, "password": PASSWORD},
+        headers={"X-Forwarded-For": address},
+    )
+
+
+def block_registrations_from(client, address):
+    for attempt in range(login_limiter.MAX_REGISTRATIONS_PER_IP):
+        sign_up(client, f"user{attempt}@example.com", address)
+
+
+def test_registration_is_limited_per_address(client, monkeypatch):
+    monkeypatch.setattr(login_limiter, "now", lambda: 1000.0)
+    monkeypatch.setenv("TRUST_PROXY_HEADERS", "1")
+
+    for attempt in range(login_limiter.MAX_REGISTRATIONS_PER_IP):
+        assert sign_up(client, f"user{attempt}@example.com", "203.0.113.7").status_code == 201
+
+    blocked = sign_up(client, "one-more@example.com", "203.0.113.7")
+
+    assert blocked.status_code == 429
+    assert blocked.json() == {"detail": "Too many failed attempts, try again later"}
+
+
+def test_a_blocked_address_learns_nothing_about_the_email(client, monkeypatch):
+    monkeypatch.setattr(login_limiter, "now", lambda: 1000.0)
+    monkeypatch.setenv("TRUST_PROXY_HEADERS", "1")
+    block_registrations_from(client, "203.0.113.7")
+    client.cookies.clear()
+
+    taken = sign_up(client, "user0@example.com", "203.0.113.7")
+    new = sign_up(client, "nobody-yet@example.com", "203.0.113.7")
+
+    assert taken.status_code == new.status_code == 429
+    assert taken.content == new.content
+    assert "set-cookie" not in taken.headers and "set-cookie" not in new.headers
+
+
+def test_registration_works_again_after_the_window(client, monkeypatch):
+    clock = [1000.0]
+    monkeypatch.setattr(login_limiter, "now", lambda: clock[0])
+    monkeypatch.setenv("TRUST_PROXY_HEADERS", "1")
+    block_registrations_from(client, "203.0.113.7")
+
+    assert sign_up(client, "later@example.com", "203.0.113.7").status_code == 429
+
+    clock[0] += login_limiter.REGISTRATION_WINDOW_SECONDS + 1
+
+    assert sign_up(client, "later@example.com", "203.0.113.7").status_code == 201
+
+
+def test_a_blocked_address_does_not_block_another(client, monkeypatch):
+    monkeypatch.setattr(login_limiter, "now", lambda: 1000.0)
+    monkeypatch.setenv("TRUST_PROXY_HEADERS", "1")
+    block_registrations_from(client, "203.0.113.7")
+
+    assert sign_up(client, "one-more@example.com", "203.0.113.7").status_code == 429
+    assert sign_up(client, "neighbour@example.com", "198.51.100.4").status_code == 201
+
+
+def test_registering_with_other_emails_does_not_reset_the_count(client, monkeypatch):
+    monkeypatch.setattr(login_limiter, "now", lambda: 1000.0)
+    monkeypatch.setenv("TRUST_PROXY_HEADERS", "1")
+    sign_up(client, "ana@example.com", "203.0.113.7")
+
+    # A taken email (409) and new ones (201), mixed: each attempt counts, and none resets it.
+    for attempt in range(1, login_limiter.MAX_REGISTRATIONS_PER_IP):
+        email = "ana@example.com" if attempt % 2 else f"user{attempt}@example.com"
+        assert sign_up(client, email, "203.0.113.7").status_code in (201, 409)
+
+    assert sign_up(client, "fresh@example.com", "203.0.113.7").status_code == 429
+
+
+@pytest.mark.parametrize(
+    ("value", "limit"),
+    [
+        (None, 10),
+        ("25", 25),
+        ("1", 1),
+        ("0", 10),
+        ("-3", 10),
+        ("ten", 10),
+        ("2.5", 10),
+        ("", 10),
+    ],
+)
+def test_the_registration_limit_comes_from_the_environment(monkeypatch, value, limit):
+    if value is None:
+        monkeypatch.delenv("REGISTRATION_LIMIT_PER_HOUR", raising=False)
+    else:
+        monkeypatch.setenv("REGISTRATION_LIMIT_PER_HOUR", value)
+
+    assert login_limiter.registration_limit() == limit
+
+
 def request_from(peer: str, forwarded_for: str | None = None) -> Request:
     headers = [] if forwarded_for is None else [(b"x-forwarded-for", forwarded_for.encode())]
 

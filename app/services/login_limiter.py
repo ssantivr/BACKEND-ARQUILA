@@ -1,3 +1,4 @@
+import os
 import time
 from threading import Lock
 
@@ -17,6 +18,25 @@ PASSWORD_CHANGE_WINDOW_SECONDS = 900.0
 # accounts, which the limit per email alone does not see.
 MAX_FAILED_ATTEMPTS_PER_IP = 30
 IP_WINDOW_SECONDS = 300.0
+# Registrations from one address, whether they succeed or not: enough for a household or a
+# classroom behind one router, too few to create accounts in bulk. Counted per address only:
+# a limit per email would let anyone stop a person from signing up with their own address.
+DEFAULT_REGISTRATIONS_PER_HOUR = 10
+REGISTRATION_WINDOW_SECONDS = 3600.0
+
+
+def registration_limit() -> int:
+    """REGISTRATION_LIMIT_PER_HOUR, or the default when it is missing, not a number or under 1."""
+    try:
+        limit = int(os.environ.get("REGISTRATION_LIMIT_PER_HOUR", ""))
+    except ValueError:
+        return DEFAULT_REGISTRATIONS_PER_HOUR
+
+    return limit if limit >= 1 else DEFAULT_REGISTRATIONS_PER_HOUR
+
+
+# Read once, when the server starts.
+MAX_REGISTRATIONS_PER_IP = registration_limit()
 
 
 def now() -> float:
@@ -142,6 +162,11 @@ class LoginLimiter:
 login_limiter = LoginLimiter()
 ip_login_limiter = LoginLimiter(
     scope="login_ip", max_attempts=MAX_FAILED_ATTEMPTS_PER_IP, window_seconds=IP_WINDOW_SECONDS
+)
+register_ip_limiter = LoginLimiter(
+    scope="register_ip",
+    max_attempts=MAX_REGISTRATIONS_PER_IP,
+    window_seconds=REGISTRATION_WINDOW_SECONDS,
 )
 reset_request_limiter = LoginLimiter(
     scope="reset", max_attempts=MAX_RESET_REQUESTS, window_seconds=RESET_WINDOW_SECONDS
