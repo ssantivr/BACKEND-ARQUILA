@@ -61,6 +61,16 @@ def test_check_mailer_fails_when_mail_is_not_configured(monkeypatch):
     assert "SMTP_HOST" in detail
 
 
+def test_check_mailer_fails_in_production_without_smtp(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+
+    passed, detail = check.check_mailer("ana@example.com")
+
+    assert not passed
+    assert "SMTP_HOST" in detail
+
+
 def test_check_mailer_reports_smtp_and_network_errors(monkeypatch):
     for failure in [
         smtplib.SMTPAuthenticationError(535, b"bad credentials"),

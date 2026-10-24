@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 from app import ai, mailer
-from app.errors import AIUnavailableError
+from app.errors import AIUnavailableError, NotConfiguredError
 
 
 class FakeSmtp:
@@ -43,6 +43,8 @@ def smtp(monkeypatch):
 
 def test_console_mailer_is_used_when_smtp_is_not_configured(monkeypatch, capsys):
     monkeypatch.delenv("SMTP_HOST", raising=False)
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    monkeypatch.delenv("VERCEL", raising=False)
 
     chosen = mailer.get_mailer()
     chosen.send("ana@example.com", "Hola", "cuerpo del mensaje")
@@ -50,6 +52,24 @@ def test_console_mailer_is_used_when_smtp_is_not_configured(monkeypatch, capsys)
     assert isinstance(chosen, mailer.ConsoleMailer)
     output = capsys.readouterr().out
     assert "ana@example.com" in output and "cuerpo del mensaje" in output
+
+
+@pytest.mark.parametrize(("variable", "value"), [("ENVIRONMENT", "production"), ("VERCEL", "1")])
+def test_production_never_falls_back_to_the_console(monkeypatch, variable, value):
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    monkeypatch.delenv("VERCEL", raising=False)
+    monkeypatch.setenv(variable, value)
+
+    with pytest.raises(NotConfiguredError):
+        mailer.get_mailer()
+
+
+def test_production_uses_smtp_when_it_is_configured(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+
+    assert isinstance(mailer.get_mailer(), mailer.SmtpMailer)
 
 
 def test_smtp_mailer_translates_send_into_smtp_calls(monkeypatch, smtp):

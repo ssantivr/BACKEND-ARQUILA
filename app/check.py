@@ -3,7 +3,7 @@ import sys
 
 from app.ai import get_assistant
 from app.env import ENV_FILE, load_env_file
-from app.errors import AIUnavailableError
+from app.errors import AIUnavailableError, NotConfiguredError
 from app.mailer import ConsoleMailer, get_mailer
 
 ASSISTANT_SYSTEM = "Responde en español con una sola frase corta."
@@ -24,7 +24,10 @@ def check_assistant() -> tuple[bool, str]:
 
 
 def check_mailer(recipient: str) -> tuple[bool, str]:
-    mailer = get_mailer()
+    try:
+        mailer = get_mailer()
+    except NotConfiguredError:
+        return False, "Mail is not configured: set SMTP_HOST"
 
     if isinstance(mailer, ConsoleMailer):
         return False, "Mail is not configured: set SMTP_HOST in .env"

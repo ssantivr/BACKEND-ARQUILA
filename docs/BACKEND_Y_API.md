@@ -64,7 +64,7 @@ Las interfaces se declaran con `typing.Protocol`: cualquier clase que tenga el m
 - «Olvidé mi contraseña» pide un correo. Si existe una cuenta, se genera un enlace válido 30 minutos y de un solo uso; la respuesta es la misma exista o no la cuenta, para no revelar qué correos están registrados.
 - En la base solo se guarda el hash del identificador del enlace. Pedir un enlace nuevo invalida el anterior.
 - Al cambiar la contraseña se cierran todas las sesiones abiertas de esa cuenta.
-- El correo se envía por SMTP si están definidas `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` y `SMTP_FROM`. Si `SMTP_HOST` no está definida, el mensaje con el enlace se escribe en la consola del servidor: sirve para desarrollo, pero en producción hay que configurar el correo.
+- El correo se envía por SMTP si están definidas `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` y `SMTP_FROM`. Si `SMTP_HOST` no está definida, el mensaje con el enlace se escribe en la consola del servidor, solo en desarrollo. En producción (`ENVIRONMENT=production`, o en Vercel) la consola acaba en los registros, así que la solicitud responde 503 y no se escribe nada.
 - `APP_URL` indica la dirección de la aplicación que se pone en el enlace.
 - Se atienden como máximo 3 solicitudes por correo cada 15 minutos; las demás se ignoran sin avisar, con la misma respuesta. Usa el mismo control basado en la cola que el inicio de sesión.
 - El envío real por SMTP no está probado: las pruebas usan un envío simulado.
@@ -310,7 +310,8 @@ Se pueden definir en la terminal o en el archivo `.env`, que leen `python -m app
 | `OLLAMA_URL` | Dirección de Ollama (por defecto `http://127.0.0.1:11434`). |
 | `APP_URL` | Dirección de la aplicación, para el enlace del correo de recuperación. También es el origen que CORS admite si no se define `CORS_ORIGINS`. |
 | `CORS_ORIGINS` | Orígenes que pueden llamar a la API desde el navegador, separados por comas (por defecto, `APP_URL`). |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Servidor de correo para la recuperación de contraseña. |
+| `ENVIRONMENT` | `production` activa las comprobaciones de producción. En Vercel están siempre activas, porque la plataforma define `VERCEL`. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Servidor de correo para la recuperación de contraseña. Obligatorio en producción. |
 
 ### Comprobar los servicios externos
 

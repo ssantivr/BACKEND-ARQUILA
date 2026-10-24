@@ -3,6 +3,9 @@ import smtplib
 from email.message import EmailMessage
 from typing import Protocol
 
+from app.env import is_production
+from app.errors import NotConfiguredError
+
 
 class Mailer(Protocol):
     def send(self, recipient: str, subject: str, body: str) -> None: ...
@@ -48,6 +51,11 @@ def get_mailer() -> Mailer:
     host = os.environ.get("SMTP_HOST")
 
     if not host:
+        # The console copy carries the reset link, and in production the console ends up in
+        # the logs, where anyone who reads them could take over the account.
+        if is_production():
+            raise NotConfiguredError("Password recovery is not available on this server")
+
         return ConsoleMailer()
 
     return SmtpMailer(

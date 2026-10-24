@@ -142,3 +142,14 @@ def test_a_mail_failure_gets_the_same_answer_as_a_sent_mail(client):
     register(client)
 
     assert request_reset(client).status_code == 204
+
+
+def test_production_without_smtp_refuses_instead_of_printing_the_link(client, monkeypatch, capsys):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    register(client)
+
+    response = request_reset(client)
+
+    assert response.status_code == 503
+    assert "reset_token" not in capsys.readouterr().out

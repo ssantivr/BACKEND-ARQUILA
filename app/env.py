@@ -28,6 +28,13 @@ def load_env_file(path: Path) -> list[str]:
     return loaded
 
 
+def is_production() -> bool:
+    """True with ENVIRONMENT=production, and always on Vercel, which sets VERCEL itself."""
+    return os.environ.get("ENVIRONMENT", "").lower() == "production" or bool(
+        os.environ.get("VERCEL")
+    )
+
+
 def require_database_url() -> None:
     if not os.environ.get("DATABASE_URL"):
         raise SystemExit("DATABASE_URL is not set. Copy .env.example to .env and fill it in.")

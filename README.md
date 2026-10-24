@@ -56,7 +56,8 @@ Copiar `.env.example` a `.env` y completarlo. El archivo `.env` no se sube al re
 | `APP_URL` | Dirección de la interfaz; se usa en el enlace de recuperación de contraseña y como origen permitido. | `http://localhost:5173` |
 | `CORS_ORIGINS` | Orígenes permitidos, separados por comas. | `APP_URL` |
 | `OLLAMA_URL`, `OLLAMA_MODEL` | Modelo local del asistente. | `http://127.0.0.1:11434`, primer modelo instalado |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Correo de recuperación de contraseña. Sin `SMTP_HOST`, el mensaje se muestra en la terminal. | — |
+| `ENVIRONMENT` | `production` activa las comprobaciones de producción. En Vercel siempre están activas. | — |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Correo de recuperación de contraseña. Sin `SMTP_HOST`, el mensaje se muestra en la terminal; en producción, la recuperación responde 503. | — |
 
 ## Conexión con la base de datos
 
