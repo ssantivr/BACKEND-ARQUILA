@@ -4,6 +4,12 @@ Este documento explica las decisiones del backend. El código no lleva comentari
 
 Las decisiones de la interfaz (esquemas del terreno, planos, modelo 3D, estados de carga y accesibilidad) están en `FRONTEND-ARQUILA/docs/FRONTEND.md`.
 
+## Convenciones
+
+- El backend es solo Python: no tiene archivos `.js` ni `.ts` ni scripts de Node. Hoy son 170 archivos `.py`.
+- Antes de cada commit pasan `ruff check`, `ruff format --check` y `pytest`, en SQLite y en PostgreSQL.
+- `TEST_DATABASE_URL` apunta solo a un clúster local desechable cuya base termine en `test`, nunca a producción.
+
 ## Capas
 
 ```text
