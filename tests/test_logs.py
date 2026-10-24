@@ -2,31 +2,8 @@ import json
 import logging
 import sys
 
-import pytest
-
 from app.logs import JsonFormatter, configure_logging, logger
 from tests.helpers import register
-
-
-class Collector(logging.Handler):
-    def __init__(self):
-        super().__init__()
-        self.setFormatter(JsonFormatter())
-        self.entries = []
-
-    def emit(self, record):
-        self.entries.append(json.loads(self.format(record)))
-
-    def events(self, name):
-        return [entry for entry in self.entries if entry["event"] == name]
-
-
-@pytest.fixture
-def logs():
-    collector = Collector()
-    logger.addHandler(collector)
-    yield collector
-    logger.removeHandler(collector)
 
 
 def test_each_request_is_logged_as_one_json_line(client, logs):

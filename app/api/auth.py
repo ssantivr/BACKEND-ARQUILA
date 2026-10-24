@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import SESSION_COOKIE, client_ip, get_current_user
 from app.database import get_session
+from app.env import setting
 from app.mailer import Mailer, get_mailer
 from app.models import User
 from app.schemas import (
@@ -37,7 +38,7 @@ def cookie_options() -> dict:
     return {
         "httponly": True,
         "samesite": samesite,
-        "secure": samesite == "none" or os.environ.get("COOKIE_SECURE", "0") == "1",
+        "secure": samesite == "none" or setting("COOKIE_SECURE") == "1",
         "path": "/",
     }
 

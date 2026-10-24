@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_session
+from app.logs import logger
 from app.main import app
 from app.migrate import apply_migrations
 from app.services.login_limiter import (
@@ -17,9 +18,18 @@ from app.services.login_limiter import (
     reset_request_limiter,
 )
 from app.services.undo_history import undo_history
-from tests.helpers import seed_access_catalog
+from tests.helpers import Collector, seed_access_catalog
 
 CATALOG_TABLES = {"roles", "permissions", "role_permissions"}
+# They change the defaults and the checks of app/env.py, so a shell or CI that exports them
+# would run every test in production. A test that needs one sets it itself.
+ENVIRONMENT_VARIABLES = ("ENVIRONMENT", "VERCEL", "COOKIE_SECURE", "STATE_STORAGE", "FILE_STORAGE")
+
+
+@pytest.fixture(autouse=True)
+def development_environment(monkeypatch):
+    for name in ENVIRONMENT_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
 
 
 def create_test_engine() -> Engine:
@@ -57,6 +67,14 @@ def create_test_engine() -> Engine:
         connection.exec_driver_sql(f"TRUNCATE {tables} RESTART IDENTITY CASCADE")
 
     return engine
+
+
+@pytest.fixture
+def logs():
+    collector = Collector()
+    logger.addHandler(collector)
+    yield collector
+    logger.removeHandler(collector)
 
 
 @pytest.fixture

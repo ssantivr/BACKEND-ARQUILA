@@ -17,7 +17,7 @@ def test_hsts_is_sent_when_the_cookie_is_https_only(client, monkeypatch):
 
     headers = client.get("/health").headers
 
-    assert headers["strict-transport-security"] == "max-age=31536000; includeSubDomains"
+    assert headers["strict-transport-security"] == "max-age=31536000"
 
 
 @pytest.mark.parametrize("method", ["PUT", "PATCH", "DELETE"])

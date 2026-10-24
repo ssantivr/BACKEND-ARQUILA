@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import BinaryIO
 from uuid import uuid4
 
+from app.env import setting
 from app.errors import FileTooLargeError, UnsupportedFileError
 
 MAX_FILE_BYTES = 20 * 1024 * 1024
@@ -16,7 +17,7 @@ def upload_dir() -> Path:
 
 
 def keeps_files_in_database() -> bool:
-    return os.environ.get("FILE_STORAGE", "disk").lower() == "database"
+    return setting("FILE_STORAGE").lower() == "database"
 
 
 def too_large() -> FileTooLargeError:

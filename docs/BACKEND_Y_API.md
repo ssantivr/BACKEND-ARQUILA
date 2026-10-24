@@ -52,7 +52,7 @@ Las interfaces se declaran con `typing.Protocol`: cualquier clase que tenga el m
 - Un inicio de sesión fallido devuelve el mismo mensaje exista o no el correo y realiza la misma verificación de contraseña en ambos casos, para no revelar qué cuentas existen.
 - La sesión dura 7 días y se elimina del servidor al cerrar sesión.
 - `POST /auth/change-password` exige la contraseña actual, guarda la nueva con Argon2id y cierra todas las demás sesiones de la cuenta; la que hace la petición sigue abierta. Una contraseña actual incorrecta responde 422 y no 401, para que la interfaz no lo tome por una sesión caducada. Tras 5 fallos en 15 minutos responde 429; el control es el mismo que el del inicio de sesión, por usuario, y se guarda en `runtime_state` con `STATE_STORAGE=database`.
-- En producción hay que definir `COOKIE_SECURE=1` para que la cookie solo viaje por HTTPS.
+- En producción la cookie solo viaja por HTTPS: `COOKIE_SECURE` vale `1` si no se define. Un `COOKIE_SECURE=0` explícito se respeta y se registra `insecure_setting`.
 - `SameSite` se puede cambiar con `COOKIE_SAMESITE` (`lax`, `strict` o `none`). `none` solo hace falta si la interfaz y la API están en sitios distintos: el navegador exige entonces HTTPS, así que la cookie se marca `Secure` aunque `COOKIE_SECURE` valga `0`. Con `none` se pierde la protección de `SameSite` frente a peticiones de escritura desde otros sitios; las peticiones con cuerpo JSON siguen bloqueadas por CORS, pero la subida de archivos y el cierre de sesión no llevan esa barrera.
 
 - Tras 5 intentos fallidos con el mismo correo en un minuto, el inicio de sesión responde 429 hasta que los intentos salen de esa ventana de tiempo. Un inicio de sesión correcto borra la cuenta de fallos. El control usa la cola de `app/data_structures` (ver `05_COMPLEJIDAD.md`) y vive en memoria, igual que el historial de deshacer.
@@ -247,7 +247,7 @@ Todas las respuestas llevan estas cabeceras, que añade un middleware en `app/ma
 | `Cache-Control: no-store` | Los datos de un usuario no quedan guardados en la caché del navegador ni de un intermediario. |
 | `Content-Security-Policy: frame-ancestors` | Solo la propia aplicación (los orígenes de `CORS_ORIGINS` o `APP_URL`) puede mostrar una respuesta dentro de un marco. |
 | `Permissions-Policy: camera=(), microphone=(), geolocation=()` | La API no necesita cámara, micrófono ni ubicación, así que ninguna respuesta puede pedirlos. |
-| `Strict-Transport-Security` | Solo con `COOKIE_SECURE=1`: el navegador recordará durante un año que el sitio solo se usa por HTTPS. Sin HTTPS no se envía, para no dejar inservible una instalación local. |
+| `Strict-Transport-Security: max-age=31536000` | Solo con `COOKIE_SECURE=1` (el valor por defecto en producción): el navegador recordará durante un año que este sitio solo se usa por HTTPS. No lleva `includeSubDomains` ni `preload`, que atarían a otros sitios del mismo dominio mucho después de quitar la cabecera. Sin HTTPS no se envía, para no dejar inservible una instalación local. |
 
 No se envía `Cross-Origin-Resource-Policy`: en Vercel la interfaz y la API están en sitios distintos (`vercel.app` es un sufijo público) y esa cabecera impediría mostrar las imágenes de los archivos.
 
@@ -279,6 +279,7 @@ El backend escribe en la salida estándar una línea en formato JSON por cada ev
 | `login_blocked` | Inicio de sesión rechazado por el límite de intentos. |
 | `password_rehashed` | Una contraseña antigua se volvió a guardar con Argon2id. |
 | `assistant_fallback` | La IA no respondió y contestaron las reglas; incluye el motivo. |
+| `insecure_setting` | Al arrancar en producción, una variable debilita el servidor; incluye su nombre en `variable`, nunca su valor. Ver «Variables de entorno». |
 
 No se registran contraseñas, correos, cookies ni los parámetros de la dirección: de cada petición solo queda la ruta. `LOG_LEVEL` fija el nivel mínimo (`INFO` por defecto). Para no duplicar líneas, `python -m app.dev` desactiva el registro de accesos propio de Uvicorn.
 
@@ -288,11 +289,22 @@ No se registran contraseñas, correos, cookies ni los parámetros de la direcci�
 - El registro admite `REGISTRATION_LIMIT_PER_HOUR` intentos por dirección IP cada hora (10 por defecto), logren o no crear la cuenta; al pasarlos responde 429 sin mirar el correo. No se limita por correo, para que nadie pueda impedir que otra persona se registre con el suyo. Fuera de ese límite sigue respondiendo que un correo ya está registrado, así que permite averiguar si un correo tiene cuenta: evitarlo exige verificar el correo.
 - La documentación automática de la API (`/docs`) queda accesible sin sesión. No muestra datos, solo la lista de operaciones.
 - No hay un límite de archivos por proyecto, solo de tamaño por archivo.
-- La aplicación no fuerza HTTPS: en un despliegue real debe ir detrás de un servidor que lo haga, con `COOKIE_SECURE=1`.
+- La aplicación no fuerza HTTPS: en un despliegue real debe ir detrás de un servidor que lo haga (en producción `COOKIE_SECURE` ya vale `1`).
+- Pendiente: `/health` responde `{"status": "ok"}` sin comprobar la base. Con `STATE_STORAGE=database` o `FILE_STORAGE=database` y sin las tablas `runtime_state` o `file_contents`, el registro, el inicio de sesión, deshacer y la subida de archivos responden 500 mientras `/health` sigue en verde. Debería comprobar que esas tablas existen.
 
 ## Variables de entorno
 
 Se pueden definir en la terminal o en el archivo `.env`, que leen `python -m app.dev`, `python -m app.migrate` y `python -m app.check`. Una variable ya definida en la terminal tiene prioridad sobre el archivo. `.env` está excluido del repositorio porque contiene contraseñas.
+
+Los valores por defecto de `COOKIE_SECURE`, `STATE_STORAGE` y `FILE_STORAGE` dependen del entorno y salen de un solo sitio, `setting()` en `app/env.py`. Una variable vacía cuenta como no definida.
+
+| Variable | Desarrollo y pruebas | Producción (`ENVIRONMENT=production` o Vercel) |
+|---|---|---|
+| `COOKIE_SECURE` | `0` | `1` |
+| `STATE_STORAGE` | `memory` | `database` |
+| `FILE_STORAGE` | `disk` | `database` |
+
+En producción, `check_production_settings()` revisa la configuración una vez al arrancar y registra `insecure_setting`, con el nombre de la variable y nunca su valor, si `COOKIE_SECURE` no vale `1`, si `STATE_STORAGE` no vale `database`, si `FILE_STORAGE` no vale `database` en Vercel (un servidor propio puede conservar su disco) o si `JWT_SECRET` falta o tiene menos de 32 bytes. El valor explícito se respeta y el servidor arranca igual.
 
 | Variable | Uso |
 |---|---|
@@ -300,17 +312,17 @@ Se pueden definir en la terminal o en el archivo `.env`, que leen `python -m app
 | `DATABASE_DIR` | Carpeta del repositorio `BASE-DE-DATOS-ARQUILA`, de donde salen las migraciones (por defecto la carpeta hermana `../BASE-DE-DATOS-ARQUILA`). |
 | `API_HOST`, `API_PORT` | Dirección y puerto en los que escucha la API (por defecto `127.0.0.1` y `8000`). |
 | `UPLOAD_DIR` | Carpeta de archivos subidos (por defecto `uploads`). |
-| `STATE_STORAGE` | `memory` (por defecto) guarda en memoria el historial de «Deshacer» y los límites de intentos; `database` los guarda en la tabla `runtime_state`. En producción hay que usar `database`. |
-| `FILE_STORAGE` | `disk` (por defecto) guarda los archivos en `UPLOAD_DIR`; `database` los guarda en la tabla `file_contents`. |
-| `COOKIE_SECURE` | `1` para exigir HTTPS en la cookie de sesión. |
-| `JWT_SECRET` | Clave de al menos 32 bytes para firmar los tokens de acceso de `/api/v1/auth/token`. Sin ella no se emiten tokens; el resto de la API funciona igual. |
+| `STATE_STORAGE` | `memory` guarda en memoria el historial de «Deshacer» y los límites de intentos; `database` los guarda en la tabla `runtime_state`. Por defecto `memory` en desarrollo y `database` en producción. |
+| `FILE_STORAGE` | `disk` guarda los archivos en `UPLOAD_DIR`; `database` los guarda en la tabla `file_contents`. Por defecto `disk` en desarrollo y `database` en producción. |
+| `COOKIE_SECURE` | `1` exige HTTPS en la cookie de sesión y añade `Strict-Transport-Security`. Por defecto `0` en desarrollo y `1` en producción. |
+| `JWT_SECRET` | Clave de al menos 32 bytes para firmar los tokens de acceso de `/api/v1/auth/token`. Sin ella no se emiten tokens; el resto de la API funciona igual. En producción, si falta o es corta, se registra `insecure_setting` y el servidor arranca. |
 | `COOKIE_SAMESITE` | `lax`, `strict` o `none` (por defecto `lax`). `none` permite usar la sesión desde otro sitio y obliga a HTTPS. |
 | `LOG_LEVEL` | Nivel mínimo del registro de eventos: `DEBUG`, `INFO`, `WARNING` o `ERROR` (por defecto `INFO`). |
 | `OLLAMA_MODEL` | Modelo local que usa el asistente (por defecto, el primero instalado). |
 | `OLLAMA_URL` | Dirección de Ollama (por defecto `http://127.0.0.1:11434`). |
 | `APP_URL` | Dirección de la aplicación, para el enlace del correo de recuperación. También es el origen que CORS admite si no se define `CORS_ORIGINS`. |
 | `CORS_ORIGINS` | Orígenes que pueden llamar a la API desde el navegador, separados por comas (por defecto, `APP_URL`). |
-| `ENVIRONMENT` | `production` activa las comprobaciones de producción. En Vercel están siempre activas, porque la plataforma define `VERCEL`. |
+| `ENVIRONMENT` | `production` activa las comprobaciones y los valores por defecto de producción. En Vercel están siempre activos, porque la plataforma define `VERCEL` (también en las previews). |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Servidor de correo para la recuperación de contraseña. Obligatorio en producción. |
 
 ### Comprobar los servicios externos

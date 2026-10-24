@@ -1,16 +1,16 @@
 import json
-import os
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
+from app.env import setting
 from app.models import RuntimeState
 
 
 def keeps_state_in_database() -> bool:
-    return os.environ.get("STATE_STORAGE", "memory").lower() == "database"
+    return setting("STATE_STORAGE").lower() == "database"
 
 
 def is_persistent(session: Session | None) -> bool:

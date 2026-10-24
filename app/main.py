@@ -33,6 +33,7 @@ from app.api import (
     versions,
 )
 from app.api.v1.validation import translate
+from app.env import check_production_settings, setting
 from app.errors import (
     AuthenticationError,
     ConflictError,
@@ -57,6 +58,7 @@ def allowed_origins() -> list[str]:
 
 
 app = FastAPI(title="ARQUILA API", version="1.0.0")
+check_production_settings()
 
 app.add_middleware(
     CORSMiddleware,
@@ -74,7 +76,9 @@ SECURITY_HEADERS = {
     "Content-Security-Policy": "frame-ancestors " + " ".join(["'self'", *allowed_origins()]),
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 }
-HSTS = "max-age=31536000; includeSubDomains"
+# One year, for this host only: includeSubDomains or preload would bind other sites under the
+# same domain, and browsers keep it long after the header is gone.
+HSTS = "max-age=31536000"
 
 
 @app.middleware("http")
@@ -85,7 +89,7 @@ async def add_security_headers(request: Request, call_next):
         response.headers.setdefault(name, value)
 
     # Only where the deployment already promises HTTPS, or a plain-HTTP setup would break.
-    if os.environ.get("COOKIE_SECURE", "0") == "1":
+    if setting("COOKIE_SECURE") == "1":
         response.headers.setdefault("Strict-Transport-Security", HSTS)
 
     return response

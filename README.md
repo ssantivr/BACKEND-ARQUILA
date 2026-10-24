@@ -41,6 +41,8 @@ En Linux o macOS cambia la activación: `source .venv/bin/activate`.
 
 Copiar `.env.example` a `.env` y completarlo. El archivo `.env` no se sube al repositorio.
 
+En producción (`ENVIRONMENT=production`, o en Vercel) una variable que falta o está vacía toma el valor seguro: `COOKIE_SECURE=1`, `STATE_STORAGE=database` y `FILE_STORAGE=database`. Un valor explícito se respeta, pero si debilita el servidor (`COOKIE_SECURE=0`, `STATE_STORAGE=memory`, `FILE_STORAGE=disk` en Vercel, o `JWT_SECRET` ausente o corta) se registra al arrancar el evento `insecure_setting` con el nombre de la variable, nunca su valor. Nada de esto impide arrancar.
+
 | Variable | Uso | Por defecto |
 |---|---|---|
 | `DATABASE_URL` | Conexión a PostgreSQL. Obligatoria. | — |
@@ -48,16 +50,17 @@ Copiar `.env.example` a `.env` y completarlo. El archivo `.env` no se sube al re
 | `API_HOST` | Dirección en la que escucha la API. | `127.0.0.1` |
 | `API_PORT` | Puerto de la API. | `8000` |
 | `UPLOAD_DIR` | Carpeta de los archivos subidos. | `uploads` |
-| `STATE_STORAGE` | `memory` guarda en memoria el historial de «Deshacer» y los límites de intentos; `database` los guarda en PostgreSQL. **En producción usar `database`.** | `memory` |
+| `STATE_STORAGE` | `memory` guarda en memoria el historial de «Deshacer» y los límites de intentos; `database` los guarda en PostgreSQL. | `memory`; en producción, `database` |
 | `REGISTRATION_LIMIT_PER_HOUR` | Registros que admite cada dirección IP por hora, logren o no crear la cuenta. Un valor que no sea un entero mayor que 0 vuelve al de por defecto. Se lee al arrancar. | `10` |
-| `FILE_STORAGE` | `disk` guarda los archivos en `UPLOAD_DIR`; `database` los guarda en PostgreSQL. | `disk` |
-| `COOKIE_SECURE` | `1` para enviar la cookie de sesión solo por HTTPS. | `0` |
+| `FILE_STORAGE` | `disk` guarda los archivos en `UPLOAD_DIR`; `database` los guarda en PostgreSQL. | `disk`; en producción, `database` |
+| `COOKIE_SECURE` | `1` envía la cookie de sesión solo por HTTPS y añade `Strict-Transport-Security`. | `0`; en producción, `1` |
 | `COOKIE_SAMESITE` | `lax`, `strict` o `none`. Usar `none` solo si la interfaz está en otro sitio; obliga a HTTPS. | `lax` |
 | `LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING` o `ERROR`. | `INFO` |
 | `APP_URL` | Dirección de la interfaz; se usa en el enlace de recuperación de contraseña y como origen permitido. | `http://localhost:5173` |
 | `CORS_ORIGINS` | Orígenes permitidos, separados por comas. | `APP_URL` |
 | `OLLAMA_URL`, `OLLAMA_MODEL` | Modelo local del asistente. | `http://127.0.0.1:11434`, primer modelo instalado |
-| `ENVIRONMENT` | `production` activa las comprobaciones de producción. En Vercel siempre están activas. | — |
+| `JWT_SECRET` | Clave de al menos 32 bytes para los tokens de `/api/v1/auth/token`. Sin ella esa ruta responde 503; el resto funciona. | — |
+| `ENVIRONMENT` | `production` activa las comprobaciones y los valores por defecto de producción. En Vercel siempre están activos. | — |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Correo de recuperación de contraseña. Sin `SMTP_HOST`, el mensaje se muestra en la terminal; en producción, la recuperación responde 503. | — |
 
 ## Conexión con la base de datos
@@ -95,9 +98,9 @@ Lee `.env`, aplica las migraciones pendientes y arranca la API en `http://127.0.
 `python -m app.dev` está pensado para desarrollo y solo escucha en el propio equipo. En un servidor:
 
 - Poner `API_HOST=0.0.0.0` para aceptar conexiones de fuera, detrás de un servidor que dé HTTPS.
-- Definir `COOKIE_SECURE=1` y poner la dirección pública de la interfaz en `APP_URL`.
-- Apuntar `UPLOAD_DIR` a una carpeta que se conserve entre despliegues, o poner `FILE_STORAGE=database` si no hay ninguna.
-- Poner `STATE_STORAGE=database`, el valor recomendado en producción. Con `memory` (el valor por defecto, pensado para desarrollo), los límites de intentos de inicio de sesión y de cambio de contraseña y el historial de «Deshacer» viven en la memoria de cada proceso: se pierden al reiniciar y no se comparten entre instancias, así que el límite de intentos se puede esquivar repartiendo las peticiones.
+- Poner `ENVIRONMENT=production`: así `COOKIE_SECURE` vale `1`, `STATE_STORAGE` vale `database` y `FILE_STORAGE` vale `database` si no se definen. Poner la dirección pública de la interfaz en `APP_URL`.
+- Para guardar los archivos en disco, definir `FILE_STORAGE=disk` y apuntar `UPLOAD_DIR` a una carpeta que se conserve entre despliegues.
+- No poner `STATE_STORAGE=memory` en producción. Con `memory` (el valor por defecto en desarrollo), los límites de intentos de inicio de sesión y de cambio de contraseña y el historial de «Deshacer» viven en la memoria de cada proceso: se pierden al reiniciar y no se comparten entre instancias, así que el límite de intentos se puede esquivar repartiendo las peticiones.
 
 ### En Vercel
 
@@ -105,7 +108,8 @@ La API está publicada en <https://arquila-backend.vercel.app> y la interfaz en 
 
 - Vercel detecta FastAPI a partir de `app/main.py` y `requirements.txt`; no hace falta configuración.
 - La base es un PostgreSQL de Neon creado desde el Marketplace de Vercel, que deja `DATABASE_URL` en el proyecto. El backend acepta la forma `postgresql://` que entrega Neon.
-- Variables del proyecto: `COOKIE_SECURE=1`, `APP_URL` con la dirección de la interfaz, y `FILE_STORAGE=database` y `STATE_STORAGE=database`, porque en Vercel ni el disco ni la memoria se conservan entre peticiones.
+- Variables del proyecto: `APP_URL` con la dirección de la interfaz. `COOKIE_SECURE`, `FILE_STORAGE` y `STATE_STORAGE` ya valen `1`, `database` y `database` en Vercel sin definirlas, porque ni el disco ni la memoria se conservan entre peticiones; si se definen con otro valor, se respetan y se registra `insecure_setting`.
+- `STATE_STORAGE=database` y `FILE_STORAGE=database` necesitan las tablas `runtime_state` y `file_contents` (migraciones 011 y 010). Sin ellas el registro, el inicio de sesión y la subida de archivos responden 500, mientras `/health` sigue respondiendo bien.
 - Las migraciones no se aplican solas. Se ejecutan desde un equipo con `python -m app.migrate`, poniendo en `DATABASE_URL` la dirección de la base de Vercel.
 
 Limitaciones de este despliegue: Vercel no acepta peticiones de más de 4,5 MB, así que ese es el tamaño máximo de un archivo subido, aunque el backend admita 20 MB; y el asistente responde con las reglas fijas, porque no hay un Ollama al que conectarse.

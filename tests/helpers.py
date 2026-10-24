@@ -1,9 +1,26 @@
+import json
+import logging
+
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
+from app.logs import JsonFormatter
 from app.models import Permission, Role, User
 
 PASSWORD = "correct-horse-battery"
+
+
+class Collector(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.setFormatter(JsonFormatter())
+        self.entries = []
+
+    def emit(self, record):
+        self.entries.append(json.loads(self.format(record)))
+
+    def events(self, name):
+        return [entry for entry in self.entries if entry["event"] == name]
 
 
 def register(client, name="Ana", email="ana@example.com", password=PASSWORD):
