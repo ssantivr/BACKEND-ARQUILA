@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from app import security, tokens
 from app.errors import (
     AuthenticationError,
-    ConflictError,
     InvalidDataError,
     InvalidTokenError,
     NotConfiguredError,
@@ -51,7 +50,8 @@ class AuthService:
         self.resets = PasswordResetRepository(session)
         self.roles = RoleRepository(session)
 
-    def register(self, data: RegisterRequest, client_ip: str | None = None) -> tuple[User, str]:
+    def register(self, data: RegisterRequest, client_ip: str | None = None) -> None:
+        """Create the account if the email is free. The caller learns nothing either way."""
         email = normalize_email(data.email)
         ip_key = f"ip:{client_ip}" if client_ip else None
 
@@ -64,23 +64,24 @@ class AuthService:
 
             register_ip_limiter.record_failure(ip_key, self.users.session)
 
+        # Hashed before the check, so a taken email takes as long as a free one.
+        password_hash = security.hash_password(data.password)
+
         if self.users.get_by_email(email) is not None:
-            raise ConflictError("Email is already registered")
+            return
 
         try:
-            user = self.users.add(
+            self.users.add(
                 User(
                     name=data.name.strip(),
                     email=email,
-                    password_hash=security.hash_password(data.password),
+                    password_hash=password_hash,
                     roles=self.roles.list_by_names([DEFAULT_ROLE]),
                 )
             )
         except IntegrityError:
+            # Two registrations of the same email at once: the other one won.
             self.users.session.rollback()
-            raise ConflictError("Email is already registered") from None
-
-        return user, self._start_session(user)
 
     def login(self, data: LoginRequest, client_ip: str | None = None) -> tuple[User, str]:
         user = self.authenticate(data, client_ip)

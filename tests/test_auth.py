@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from app.api.deps import SESSION_COOKIE, client_ip
 from app.main import app
 from app.services import auth_service, login_limiter
-from tests.helpers import PASSWORD, register
+from tests.helpers import PASSWORD, register, sign_in
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"fake image data"
 
@@ -25,10 +25,7 @@ def test_register_logs_the_user_in(client):
 
 
 def test_session_cookie_is_http_only(client):
-    response = client.post(
-        "/auth/register",
-        json={"name": "Ana", "email": "ana@example.com", "password": PASSWORD},
-    )
+    response = sign_in(client)
 
     cookie = response.headers["set-cookie"].lower()
     assert cookie.startswith(f"{SESSION_COOKIE}=")
@@ -40,10 +37,7 @@ def test_session_cookie_is_http_only(client):
 def test_session_cookie_can_be_sent_from_another_site(client, monkeypatch):
     monkeypatch.setenv("COOKIE_SAMESITE", "none")
 
-    response = client.post(
-        "/auth/register",
-        json={"name": "Ana", "email": "ana@example.com", "password": PASSWORD},
-    )
+    response = sign_in(client)
 
     cookie = response.headers["set-cookie"].lower()
     assert "samesite=none" in cookie
@@ -57,10 +51,7 @@ def test_session_cookie_can_be_sent_from_another_site(client, monkeypatch):
 def test_unknown_same_site_value_falls_back_to_lax(client, monkeypatch):
     monkeypatch.setenv("COOKIE_SAMESITE", "anything")
 
-    response = client.post(
-        "/auth/register",
-        json={"name": "Ana", "email": "ana@example.com", "password": PASSWORD},
-    )
+    response = sign_in(client)
 
     assert "samesite=lax" in response.headers["set-cookie"].lower()
 
@@ -78,18 +69,40 @@ def test_invalid_registration_is_rejected(client, payload):
     assert client.post("/auth/register", json=payload).status_code == 422
 
 
-def test_duplicate_email_is_rejected_ignoring_case(client):
+def test_a_taken_email_gets_the_same_answer_as_a_free_one(client):
     register(client)
+    client.post("/auth/logout")
+    client.cookies.clear()
 
-    response = client.post(
+    taken = client.post(
         "/auth/register",
-        json={"name": "Other", "email": "ANA@Example.com", "password": PASSWORD},
+        json={"name": "Other", "email": "ANA@Example.com", "password": "another-password"},
+    )
+    free = client.post(
+        "/auth/register",
+        json={"name": "New", "email": "new@example.com", "password": PASSWORD},
     )
 
-    assert response.status_code == 409
+    assert (taken.status_code, taken.content) == (free.status_code, free.content) == (202, b"")
+    assert "set-cookie" not in taken.headers and "set-cookie" not in free.headers
 
 
-def test_registering_the_same_email_at_once_is_a_conflict(client, monkeypatch):
+def test_registering_a_taken_email_does_not_touch_the_account(client):
+    user = register(client)
+
+    client.post(
+        "/auth/register",
+        json={"name": "Other", "email": "ana@example.com", "password": "another-password"},
+    )
+
+    kept = client.post("/auth/login", json={"email": "ana@example.com", "password": PASSWORD})
+
+    assert kept.status_code == 200
+    assert kept.json()["id"] == user["id"]
+    assert kept.json()["name"] == user["name"]
+
+
+def test_registering_the_same_email_at_once_answers_the_same(client, monkeypatch):
     register(client)
     monkeypatch.setattr(
         "app.repositories.user_repository.UserRepository.get_by_email",
@@ -101,7 +114,7 @@ def test_registering_the_same_email_at_once_is_a_conflict(client, monkeypatch):
         json={"name": "Other", "email": "ana@example.com", "password": PASSWORD},
     )
 
-    assert response.status_code == 409
+    assert response.status_code == 202
 
 
 def test_login_and_logout(client):
@@ -338,7 +351,7 @@ def test_registration_is_limited_per_address(client, monkeypatch):
     monkeypatch.setenv("TRUST_PROXY_HEADERS", "1")
 
     for attempt in range(login_limiter.MAX_REGISTRATIONS_PER_IP):
-        assert sign_up(client, f"user{attempt}@example.com", "203.0.113.7").status_code == 201
+        assert sign_up(client, f"user{attempt}@example.com", "203.0.113.7").status_code == 202
 
     blocked = sign_up(client, "one-more@example.com", "203.0.113.7")
 
@@ -370,7 +383,7 @@ def test_registration_works_again_after_the_window(client, monkeypatch):
 
     clock[0] += login_limiter.REGISTRATION_WINDOW_SECONDS + 1
 
-    assert sign_up(client, "later@example.com", "203.0.113.7").status_code == 201
+    assert sign_up(client, "later@example.com", "203.0.113.7").status_code == 202
 
 
 def test_a_blocked_address_does_not_block_another(client, monkeypatch):
@@ -379,7 +392,7 @@ def test_a_blocked_address_does_not_block_another(client, monkeypatch):
     block_registrations_from(client, "203.0.113.7")
 
     assert sign_up(client, "one-more@example.com", "203.0.113.7").status_code == 429
-    assert sign_up(client, "neighbour@example.com", "198.51.100.4").status_code == 201
+    assert sign_up(client, "neighbour@example.com", "198.51.100.4").status_code == 202
 
 
 def test_registering_with_other_emails_does_not_reset_the_count(client, monkeypatch):
@@ -387,10 +400,10 @@ def test_registering_with_other_emails_does_not_reset_the_count(client, monkeypa
     monkeypatch.setenv("TRUST_PROXY_HEADERS", "1")
     sign_up(client, "ana@example.com", "203.0.113.7")
 
-    # A taken email (409) and new ones (201), mixed: each attempt counts, and none resets it.
+    # A taken email and new ones, mixed: each attempt counts, and none resets it.
     for attempt in range(1, login_limiter.MAX_REGISTRATIONS_PER_IP):
         email = "ana@example.com" if attempt % 2 else f"user{attempt}@example.com"
-        assert sign_up(client, email, "203.0.113.7").status_code in (201, 409)
+        assert sign_up(client, email, "203.0.113.7").status_code == 202
 
     assert sign_up(client, "fresh@example.com", "203.0.113.7").status_code == 429
 

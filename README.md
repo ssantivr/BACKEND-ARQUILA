@@ -59,7 +59,7 @@ En producción (`ENVIRONMENT=production`, o en Vercel) una variable que falta o 
 | `APP_URL` | Dirección de la interfaz; se usa en el enlace de recuperación de contraseña y como origen permitido. | `http://localhost:5173` |
 | `CORS_ORIGINS` | Orígenes permitidos, separados por comas. | `APP_URL` |
 | `OLLAMA_URL`, `OLLAMA_MODEL` | Modelo local del asistente. | `http://127.0.0.1:11434`, primer modelo instalado |
-| `JWT_SECRET` | Clave de al menos 32 bytes para los tokens de `/api/v1/auth/token`. Sin ella esa ruta responde 503; el resto funciona. | — |
+| `JWT_SECRET` | Clave de al menos 32 bytes para los tokens de `/api/v1/auth/token`. Obligatoria en producción: sin ella el servidor no arranca. | — |
 | `ENVIRONMENT` | `production` activa las comprobaciones y los valores por defecto de producción. En Vercel siempre están activos. | — |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Correo de recuperación de contraseña. Sin `SMTP_HOST`, el mensaje se muestra en la terminal; en producción, la recuperación responde 503. | — |
 

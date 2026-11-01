@@ -52,16 +52,15 @@ def set_session_cookie(response: Response, token: str) -> None:
     )
 
 
-@router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+@router.post("/register", status_code=status.HTTP_202_ACCEPTED)
 def register(
     data: RegisterRequest,
     request: Request,
-    response: Response,
     service: AuthService = Depends(get_service),
 ):
-    user, token = service.register(data, client_ip(request))
-    set_session_cookie(response, token)
-    return user
+    # The same answer with a taken email and a free one, and no session: it would tell them apart.
+    service.register(data, client_ip(request))
+    return Response(status_code=status.HTTP_202_ACCEPTED)
 
 
 @router.post("/login", response_model=UserRead)

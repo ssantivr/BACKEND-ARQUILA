@@ -4,7 +4,7 @@ Este documento describe, para la interfaz, las rutas y los campos que se añadie
 
 ## Convenciones comunes
 
-- **Sesión**: todas las rutas de este documento exigen la cookie `arquila_session` (la que dejan `POST /auth/register` y `POST /auth/login`). Desde el navegador hay que enviar las peticiones con `credentials: "include"`.
+- **Sesión**: todas las rutas de este documento exigen la cookie `arquila_session` (la que deja `POST /auth/login`). Desde el navegador hay que enviar las peticiones con `credentials: "include"`.
 - **Propiedad**: todo lo que cuelga de un proyecto solo es visible para su dueño. Un recurso de otro usuario responde **404**, igual que uno inexistente, para no revelar qué identificadores existen.
 - **Fechas**: ISO 8601 (`2026-10-20T22:22:53`, o `2026-11-30` para fechas sin hora).
 - **Errores**: siempre JSON con `detail`.
@@ -246,7 +246,7 @@ Errores: 401; 404; 422 si un parámetro no es válido.
 
 ### Campos nuevos en `UserRead`
 
-`POST /auth/register`, `POST /auth/login`, `GET /auth/me` y `PATCH /auth/me` devuelven además `display_name` (texto o `null`) y `avatar_file_id` (entero o `null`).
+`POST /auth/register` responde 202 sin cuerpo ni cookie, exista o no el correo: una cuenta nueva entra después con `POST /auth/login`. `POST /auth/login`, `GET /auth/me` y `PATCH /auth/me` devuelven además `display_name` (texto o `null`) y `avatar_file_id` (entero o `null`).
 
 ### `PATCH /auth/me`
 

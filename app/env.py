@@ -73,7 +73,6 @@ def insecure_settings() -> list[str]:
     if os.environ.get("VERCEL") and setting("FILE_STORAGE").lower() != "database":
         names.append("FILE_STORAGE")
 
-    # Optional: without it only /api/v1/auth/token stops working, so it never stops the server.
     if tokens.signing_secret() is None:
         names.append("JWT_SECRET")
 
@@ -85,8 +84,14 @@ def check_production_settings() -> None:
     # sets the log level, which would then miss a LOG_LEVEL written in .env.
     from app.logs import logger
 
-    for name in insecure_settings():
+    names = insecure_settings()
+
+    for name in names:
         logger.warning("insecure_setting", extra={"variable": name})
+
+    if names:
+        # Only the names: a value here would reach the logs of the platform.
+        raise SystemExit("Insecure production settings: " + ", ".join(names))
 
 
 def require_database_url() -> None:

@@ -5,7 +5,7 @@ import pytest
 from app import storage
 from app.env import check_production_settings, setting
 from app.services import state_store
-from tests.helpers import PASSWORD, register
+from tests.helpers import PASSWORD, register, sign_in
 
 SECRET = "a-signing-secret-of-at-least-32-bytes"
 FAKE_SECRET = "fake-secret-7f3a9c"
@@ -58,25 +58,25 @@ def test_an_empty_variable_counts_as_missing(production, monkeypatch):
     assert setting("COOKIE_SECURE") == "1"
 
 
-def test_production_respects_an_explicit_insecure_cookie_and_warns(production, monkeypatch, logs):
+def test_production_stops_on_an_insecure_cookie(production, monkeypatch, logs):
     monkeypatch.setenv("COOKIE_SECURE", "0")
 
-    check_production_settings()
+    with pytest.raises(SystemExit, match="COOKIE_SECURE"):
+        check_production_settings()
 
-    assert setting("COOKIE_SECURE") == "0"
     assert warned(logs) == ["COOKIE_SECURE"]
 
 
-def test_production_respects_state_in_memory_and_warns(production, monkeypatch, logs):
+def test_production_stops_on_state_in_memory(production, monkeypatch, logs):
     monkeypatch.setenv("STATE_STORAGE", "memory")
 
-    check_production_settings()
+    with pytest.raises(SystemExit, match="STATE_STORAGE"):
+        check_production_settings()
 
-    assert not state_store.keeps_state_in_database()
     assert warned(logs) == ["STATE_STORAGE"]
 
 
-def test_files_on_disk_only_warn_on_vercel(monkeypatch, logs):
+def test_files_on_disk_only_stop_vercel(monkeypatch, logs):
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("JWT_SECRET", SECRET)
     monkeypatch.setenv("FILE_STORAGE", "disk")
@@ -86,38 +86,41 @@ def test_files_on_disk_only_warn_on_vercel(monkeypatch, logs):
     assert warned(logs) == []
 
     monkeypatch.setenv("VERCEL", "1")
-    check_production_settings()
+
+    with pytest.raises(SystemExit, match="FILE_STORAGE"):
+        check_production_settings()
+
     assert warned(logs) == ["FILE_STORAGE"]
 
 
 @pytest.mark.parametrize("value", [None, "too-short"])
-def test_a_missing_or_short_jwt_secret_only_warns(production, monkeypatch, logs, value):
+def test_a_missing_or_short_jwt_secret_stops_production(production, monkeypatch, logs, value):
     if value is None:
         monkeypatch.delenv("JWT_SECRET")
     else:
         monkeypatch.setenv("JWT_SECRET", value)
 
-    check_production_settings()
+    with pytest.raises(SystemExit, match="JWT_SECRET"):
+        check_production_settings()
 
     assert warned(logs) == ["JWT_SECRET"]
 
 
-def test_a_warning_never_carries_the_value(production, monkeypatch, logs):
+def test_the_stop_never_carries_the_value(production, monkeypatch, logs):
     monkeypatch.setenv("JWT_SECRET", FAKE_SECRET)
     monkeypatch.setenv("COOKIE_SECURE", FAKE_SECRET)
     monkeypatch.setenv("STATE_STORAGE", FAKE_SECRET)
 
-    check_production_settings()
+    with pytest.raises(SystemExit) as stop:
+        check_production_settings()
 
+    assert FAKE_SECRET not in str(stop.value)
     assert warned(logs) == ["COOKIE_SECURE", "STATE_STORAGE", "JWT_SECRET"]
     assert FAKE_SECRET not in json.dumps(logs.entries)
 
 
 def test_production_without_variables_sends_a_secure_cookie_and_hsts(client, production):
-    response = client.post(
-        "/auth/register",
-        json={"name": "Ana", "email": "ana@example.com", "password": PASSWORD},
-    )
+    response = sign_in(client)
 
     assert "secure" in response.headers["set-cookie"].lower()
     assert client.get("/health").headers["strict-transport-security"] == "max-age=31536000"

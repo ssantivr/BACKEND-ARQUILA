@@ -58,7 +58,7 @@ Las interfaces se declaran con `typing.Protocol`: cualquier clase que tenga el m
 - Un inicio de sesión fallido devuelve el mismo mensaje exista o no el correo y realiza la misma verificación de contraseña en ambos casos, para no revelar qué cuentas existen.
 - La sesión dura 7 días y se elimina del servidor al cerrar sesión.
 - `POST /auth/change-password` exige la contraseña actual, guarda la nueva con Argon2id y cierra todas las demás sesiones de la cuenta; la que hace la petición sigue abierta. Una contraseña actual incorrecta responde 422 y no 401, para que la interfaz no lo tome por una sesión caducada. Tras 5 fallos en 15 minutos responde 429; el control es el mismo que el del inicio de sesión, por usuario, y se guarda en `runtime_state` con `STATE_STORAGE=database`.
-- En producción la cookie solo viaja por HTTPS: `COOKIE_SECURE` vale `1` si no se define. Un `COOKIE_SECURE=0` explícito se respeta y se registra `insecure_setting`.
+- En producción la cookie solo viaja por HTTPS: `COOKIE_SECURE` vale `1` si no se define. Con un `COOKIE_SECURE=0` explícito el servidor no arranca.
 - `SameSite` se puede cambiar con `COOKIE_SAMESITE` (`lax`, `strict` o `none`). `none` solo hace falta si la interfaz y la API están en sitios distintos: el navegador exige entonces HTTPS, así que la cookie se marca `Secure` aunque `COOKIE_SECURE` valga `0`. Con `none` se pierde la protección de `SameSite` frente a peticiones de escritura desde otros sitios; las peticiones con cuerpo JSON siguen bloqueadas por CORS, pero la subida de archivos y el cierre de sesión no llevan esa barrera.
 
 - Tras 5 intentos fallidos con el mismo correo en un minuto, el inicio de sesión responde 429 hasta que los intentos salen de esa ventana de tiempo. Un inicio de sesión correcto borra la cuenta de fallos. El control usa la cola de `app/data_structures` (ver `05_COMPLEJIDAD.md`) y vive en memoria, igual que el historial de deshacer.
@@ -285,7 +285,7 @@ El backend escribe en la salida estándar una línea en formato JSON por cada ev
 | `login_blocked` | Inicio de sesión rechazado por el límite de intentos. |
 | `password_rehashed` | Una contraseña antigua se volvió a guardar con Argon2id. |
 | `assistant_fallback` | La IA no respondió y contestaron las reglas; incluye el motivo. |
-| `insecure_setting` | Al arrancar en producción, una variable debilita el servidor; incluye su nombre en `variable`, nunca su valor. Ver «Variables de entorno». |
+| `insecure_setting` | Al arrancar en producción, una variable debilita el servidor, que se detiene; incluye su nombre en `variable`, nunca su valor. Ver «Variables de entorno». |
 
 No se registran contraseñas, correos, cookies ni los parámetros de la dirección: de cada petición solo queda la ruta. `LOG_LEVEL` fija el nivel mínimo (`INFO` por defecto). Para no duplicar líneas, `python -m app.dev` desactiva el registro de accesos propio de Uvicorn.
 
@@ -310,7 +310,7 @@ Los valores por defecto de `COOKIE_SECURE`, `STATE_STORAGE` y `FILE_STORAGE` dep
 | `STATE_STORAGE` | `memory` | `database` |
 | `FILE_STORAGE` | `disk` | `database` |
 
-En producción, `check_production_settings()` revisa la configuración una vez al arrancar y registra `insecure_setting`, con el nombre de la variable y nunca su valor, si `COOKIE_SECURE` no vale `1`, si `STATE_STORAGE` no vale `database`, si `FILE_STORAGE` no vale `database` en Vercel (un servidor propio puede conservar su disco) o si `JWT_SECRET` falta o tiene menos de 32 bytes. El valor explícito se respeta y el servidor arranca igual.
+En producción, `check_production_settings()` revisa la configuración una vez al arrancar. Registra `insecure_setting`, con el nombre de la variable y nunca su valor, y detiene el servidor si `COOKIE_SECURE` no vale `1`, si `STATE_STORAGE` no vale `database`, si `FILE_STORAGE` no vale `database` en Vercel (un servidor propio puede conservar su disco) o si `JWT_SECRET` falta o tiene menos de 32 bytes.
 
 | Variable | Uso |
 |---|---|
@@ -321,7 +321,7 @@ En producción, `check_production_settings()` revisa la configuración una vez a
 | `STATE_STORAGE` | `memory` guarda en memoria el historial de «Deshacer» y los límites de intentos; `database` los guarda en la tabla `runtime_state`. Por defecto `memory` en desarrollo y `database` en producción. |
 | `FILE_STORAGE` | `disk` guarda los archivos en `UPLOAD_DIR`; `database` los guarda en la tabla `file_contents`. Por defecto `disk` en desarrollo y `database` en producción. |
 | `COOKIE_SECURE` | `1` exige HTTPS en la cookie de sesión y añade `Strict-Transport-Security`. Por defecto `0` en desarrollo y `1` en producción. |
-| `JWT_SECRET` | Clave de al menos 32 bytes para firmar los tokens de acceso de `/api/v1/auth/token`. Sin ella no se emiten tokens; el resto de la API funciona igual. En producción, si falta o es corta, se registra `insecure_setting` y el servidor arranca. |
+| `JWT_SECRET` | Clave de al menos 32 bytes para firmar los tokens de acceso de `/api/v1/auth/token`. Obligatoria en producción: sin ella el servidor no arranca. |
 | `COOKIE_SAMESITE` | `lax`, `strict` o `none` (por defecto `lax`). `none` permite usar la sesión desde otro sitio y obliga a HTTPS. |
 | `LOG_LEVEL` | Nivel mínimo del registro de eventos: `DEBUG`, `INFO`, `WARNING` o `ERROR` (por defecto `INFO`). |
 | `OLLAMA_MODEL` | Modelo local que usa el asistente (por defecto, el primero instalado). |

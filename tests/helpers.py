@@ -27,8 +27,16 @@ def register(client, name="Ana", email="ana@example.com", password=PASSWORD):
     response = client.post(
         "/auth/register", json={"name": name, "email": email, "password": password}
     )
-    assert response.status_code == 201, response.text
-    return response.json()
+    assert response.status_code == 202, response.text
+    session = client.post("/auth/login", json={"email": email, "password": password})
+    assert session.status_code == 200, session.text
+    return session.json()
+
+
+def sign_in(client, name="Ana", email="ana@example.com", password=PASSWORD):
+    """Create the account and return the login response, the one that sets the session cookie."""
+    client.post("/auth/register", json={"name": name, "email": email, "password": password})
+    return client.post("/auth/login", json={"email": email, "password": password})
 
 
 READ_PERMISSIONS = {"units:read", "rooms:read", "spatial:read", "walkthrough:read"}
