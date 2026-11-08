@@ -14,7 +14,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from sqlalchemy import BigInteger, Column, Numeric, SmallInteger, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session, selectinload
 
 from app.database import Base
 from app.errors import InvalidDataError
@@ -68,7 +68,32 @@ def in_order(instances: Iterable[Base]) -> list[Base]:
     return sorted(instances, key=lambda instance: instance.id)
 
 
+def load_contents(project: Project) -> None:
+    """Loads everything `take` reads with one SELECT per kind of row, not one per plan or terrain.
+
+    The rows land in the session, so the collections of `project` are already there when `take`
+    walks them; without this each plan would send two more queries (its rooms, its components).
+    """
+    session = object_session(project)
+
+    if session is None:
+        return
+
+    session.scalars(
+        select(Project)
+        .where(Project.id == project.id)
+        .options(
+            selectinload(Project.terrains).selectinload(Terrain.points),
+            selectinload(Project.plans).selectinload(Plan.rooms),
+            selectinload(Project.plans).selectinload(Plan.components),
+            selectinload(Project.scene_settings),
+            *(selectinload(getattr(Project, name)) for name in FLAT_COLLECTIONS),
+        )
+    ).one()
+
+
 def take(project: Project) -> dict[str, Any]:
+    load_contents(project)
     terrains = [
         {
             **values_of(terrain),
