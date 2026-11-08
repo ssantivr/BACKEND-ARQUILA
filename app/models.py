@@ -187,25 +187,51 @@ class Project(Base):
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
 
     owner: Mapped[User] = relationship(back_populates="projects")
-    terrains: Mapped[list["Terrain"]] = relationship(cascade="all, delete-orphan")
-    files: Mapped[list["File"]] = relationship(
-        cascade="all, delete-orphan", foreign_keys="File.project_id"
+    # The database deletes the rows of a project (ON DELETE CASCADE in every migration), so the
+    # ORM does not load them first just to delete them one by one.
+    terrains: Mapped[list["Terrain"]] = relationship(
+        cascade="all, delete-orphan", passive_deletes=True
     )
-    plans: Mapped[list["Plan"]] = relationship(cascade="all, delete-orphan")
-    elevations: Mapped[list["Elevation"]] = relationship(cascade="all, delete-orphan")
-    materials: Mapped[list["Material"]] = relationship(cascade="all, delete-orphan")
-    recommendations: Mapped[list["Recommendation"]] = relationship(cascade="all, delete-orphan")
-    conversations: Mapped[list["AIConversation"]] = relationship(cascade="all, delete-orphan")
-    properties: Mapped[list["Property"]] = relationship(cascade="all, delete-orphan")
-    spatial_elements: Mapped[list["SpatialElement"]] = relationship(cascade="all, delete-orphan")
-    walkthrough_steps: Mapped[list["WalkthroughStep"]] = relationship(cascade="all, delete-orphan")
-    renovation_logs: Mapped[list["RenovationLog"]] = relationship(cascade="all, delete-orphan")
-    tasks: Mapped[list["Task"]] = relationship(cascade="all, delete-orphan")
-    versions: Mapped[list["ProjectVersion"]] = relationship(cascade="all, delete-orphan")
-    activity: Mapped[list["ActivityEntry"]] = relationship(cascade="all, delete-orphan")
-    scene_settings: Mapped["SceneSettings | None"] = relationship(cascade="all, delete-orphan")
+    files: Mapped[list["File"]] = relationship(
+        cascade="all, delete-orphan", passive_deletes=True, foreign_keys="File.project_id"
+    )
+    plans: Mapped[list["Plan"]] = relationship(cascade="all, delete-orphan", passive_deletes=True)
+    elevations: Mapped[list["Elevation"]] = relationship(
+        cascade="all, delete-orphan", passive_deletes=True
+    )
+    materials: Mapped[list["Material"]] = relationship(
+        cascade="all, delete-orphan", passive_deletes=True
+    )
+    recommendations: Mapped[list["Recommendation"]] = relationship(
+        cascade="all, delete-orphan", passive_deletes=True
+    )
+    conversations: Mapped[list["AIConversation"]] = relationship(
+        cascade="all, delete-orphan", passive_deletes=True
+    )
+    properties: Mapped[list["Property"]] = relationship(
+        cascade="all, delete-orphan", passive_deletes=True
+    )
+    spatial_elements: Mapped[list["SpatialElement"]] = relationship(
+        cascade="all, delete-orphan", passive_deletes=True
+    )
+    walkthrough_steps: Mapped[list["WalkthroughStep"]] = relationship(
+        cascade="all, delete-orphan", passive_deletes=True
+    )
+    renovation_logs: Mapped[list["RenovationLog"]] = relationship(
+        cascade="all, delete-orphan", passive_deletes=True
+    )
+    tasks: Mapped[list["Task"]] = relationship(cascade="all, delete-orphan", passive_deletes=True)
+    versions: Mapped[list["ProjectVersion"]] = relationship(
+        cascade="all, delete-orphan", passive_deletes=True
+    )
+    activity: Mapped[list["ActivityEntry"]] = relationship(
+        cascade="all, delete-orphan", passive_deletes=True
+    )
+    scene_settings: Mapped["SceneSettings | None"] = relationship(
+        cascade="all, delete-orphan", passive_deletes=True
+    )
     walkthrough_points: Mapped[list["WalkthroughPoint"]] = relationship(
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan", passive_deletes=True
     )
 
 
@@ -274,7 +300,10 @@ class File(Base):
     size_bytes: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
-    content: Mapped["FileContent | None"] = relationship(cascade="all, delete-orphan")
+    # Deleting a file never reads its bytes: file_contents goes by ON DELETE CASCADE.
+    content: Mapped["FileContent | None"] = relationship(
+        cascade="all, delete-orphan", passive_deletes=True
+    )
 
 
 class FileContent(Base):

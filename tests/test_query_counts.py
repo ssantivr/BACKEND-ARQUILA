@@ -129,3 +129,65 @@ def test_the_snapshot_still_holds_every_plan_room_and_component(client, small_an
     assert {len(plan["rooms"]) for plan in contents["plans"]} == {ROOMS_PER_PLAN}
     assert {len(plan["components"]) for plan in contents["plans"]} == {COMPONENTS_PER_PLAN}
     assert {len(terrain["points"]) for terrain in contents["terrains"]} == {len(SQUARE)}
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"fake image data"
+# Every table that holds rows of a project, directly or through a parent of the project.
+PROJECT_ROWS = {
+    "terrains": "project_id = :id",
+    "terrain_points": "terrain_id NOT IN (SELECT id FROM terrains)",
+    "plans": "project_id = :id",
+    "rooms": "project_id = :id",
+    "structural_components": "project_id = :id",
+    "files": "project_id = :id",
+    "file_contents": "file_id NOT IN (SELECT id FROM files)",
+    "materials": "project_id = :id",
+    "tasks": "project_id = :id",
+    "project_versions": "project_id = :id",
+    "activity_log": "project_id = :id",
+    "elevations": "project_id = :id",
+    "scene_settings": "project_id = :id",
+    "walkthrough_points": "project_id = :id",
+}
+DELETE_SELECTS = 9
+
+
+def test_deleting_a_project_sends_the_same_selects_whatever_the_number_of_plans(
+    client, statements, small_and_large
+):
+    small, large = small_and_large
+
+    with_one = measure(client, statements, "DELETE", f"/projects/{small}")
+    with_four = measure(client, statements, "DELETE", f"/projects/{large}")
+
+    assert with_four == with_one
+    assert with_four <= DELETE_SELECTS
+
+
+def test_deleting_a_project_leaves_no_rows_and_never_reads_file_contents(
+    client, statements, engine, small_and_large, monkeypatch
+):
+    from sqlalchemy import text
+
+    monkeypatch.setenv("FILE_STORAGE", "database")
+    _, large = small_and_large
+    uploaded = client.post(
+        f"/projects/{large}/files", files={"file": ("plan.png", PNG, "image/png")}
+    )
+    assert uploaded.status_code == 201
+    assert client.post(f"/projects/{large}/versions", json={}).status_code == 201
+
+    statements.clear()
+    assert client.delete(f"/projects/{large}").status_code == 204
+
+    assert not [sql for sql in statements if "file_contents" in sql and "SELECT" in sql.upper()]
+
+    with engine.connect() as connection:
+        left = {
+            table: connection.scalar(
+                text(f"SELECT count(*) FROM {table} WHERE {where}"), {"id": large}
+            )
+            for table, where in PROJECT_ROWS.items()
+        }
+
+    assert left == dict.fromkeys(PROJECT_ROWS, 0)
