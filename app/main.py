@@ -1,12 +1,16 @@
 import os
+import re
 import time
+import uuid
 
-from fastapi import FastAPI, Request, status
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from app.api import (
     auth,
@@ -27,6 +31,7 @@ from app.api import (
     v1,
 )
 from app.api.v1.validation import translate
+from app.database import get_session
 from app.errors import (
     AuthenticationError,
     ConflictError,
@@ -68,6 +73,9 @@ SECURITY_HEADERS = {
 }
 
 
+HSTS_VALUE = "max-age=31536000; includeSubDomains"
+
+
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -75,13 +83,30 @@ async def add_security_headers(request: Request, call_next):
     for name, value in SECURITY_HEADERS.items():
         response.headers.setdefault(name, value)
 
+    if os.environ.get("COOKIE_SECURE", "0") == "1":
+        response.headers.setdefault("Strict-Transport-Security", HSTS_VALUE)
+
     return response
+
+
+REQUEST_ID_HEADER = "X-Request-ID"
+VALID_REQUEST_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
+
+
+def request_id_for(request: Request) -> str:
+    received = request.headers.get(REQUEST_ID_HEADER, "")
+
+    if VALID_REQUEST_ID.fullmatch(received):
+        return received
+
+    return uuid.uuid4().hex
 
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     started = time.perf_counter()
-    fields = {"method": request.method, "path": request.url.path}
+    request_id = request_id_for(request)
+    fields = {"method": request.method, "path": request.url.path, "request_id": request_id}
 
     try:
         response = await call_next(request)
@@ -93,6 +118,7 @@ async def log_requests(request: Request, call_next):
     fields["status"] = response.status_code
     fields["duration_ms"] = round((time.perf_counter() - started) * 1000, 1)
     logger.info("request", extra=fields)
+    response.headers[REQUEST_ID_HEADER] = request_id
 
     return response
 
@@ -196,5 +222,14 @@ def handle_file_too_large(request: Request, error: FileTooLargeError) -> JSONRes
 
 
 @app.get("/health")
-def health_check() -> dict[str, str]:
-    return {"status": "ok"}
+def health_check(session: Session = Depends(get_session)) -> JSONResponse:
+    try:
+        session.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        logger.exception("health_check_failed")
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"status": "error", "database": "unavailable"},
+        )
+
+    return JSONResponse(content={"status": "ok", "database": "ok"})

@@ -1,0 +1,35 @@
+# Despliegue en Render (Blueprint): una API web y una base PostgreSQL.
+# En Render: New > Blueprint y elegir este repositorio.
+databases:
+  - name: arquila-db
+    plan: free
+    region: oregon
+    databaseName: arquila
+    user: arquila
+
+services:
+  - type: web
+    name: arquila-backend
+    runtime: python
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    buildCommand: >-
+      pip install -r requirements.txt &&
+      git clone --depth 1 https://github.com/ssantivr/BASE-DE-DATOS-ARQUILA.git database
+    startCommand: python -m app.migrate --seed && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: arquila-db
+          property: connectionString
+      - key: DATABASE_DIR
+        value: database
+      - key: COOKIE_SECURE
+        value: "1"
+      - key: FILE_STORAGE
+        value: database
+      - key: STATE_STORAGE
+        value: database
+      - key: APP_URL
+        sync: false
