@@ -71,12 +71,18 @@ SECURITY_HEADERS = {
 }
 
 
+HSTS_VALUE = "max-age=31536000; includeSubDomains"
+
+
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
 
     for name, value in SECURITY_HEADERS.items():
         response.headers.setdefault(name, value)
+
+    if os.environ.get("COOKIE_SECURE", "0") == "1":
+        response.headers.setdefault("Strict-Transport-Security", HSTS_VALUE)
 
     return response
 
