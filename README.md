@@ -86,7 +86,7 @@ python -m app.dev
 Lee `.env`, aplica las migraciones pendientes y arranca la API en `http://127.0.0.1:8000`.
 
 - `http://localhost:8000/docs`: documentación interactiva con todas las operaciones.
-- `http://localhost:8000/health`: responde `{"status": "ok"}`.
+- `http://localhost:8000/health`: responde `{"status": "ok", "database": "ok"}`, o 503 si la base no contesta.
 
 ## Despliegue
 
@@ -96,6 +96,16 @@ Lee `.env`, aplica las migraciones pendientes y arranca la API en `http://127.0.
 - Definir `COOKIE_SECURE=1` y poner la dirección pública de la interfaz en `APP_URL`.
 - Apuntar `UPLOAD_DIR` a una carpeta que se conserve entre despliegues, o poner `FILE_STORAGE=database` si no hay ninguna.
 - Ejecutar una sola instancia, o poner `STATE_STORAGE=database`: sin esa variable, los límites de intentos de inicio de sesión y el historial de «Deshacer» viven en memoria.
+
+### En Render
+
+`render.yaml` crea la API y una base PostgreSQL gratuita desde **New → Blueprint**. Al crear el Blueprint, Render pide `APP_URL`: la dirección de la interfaz, por ejemplo `https://arquila-app.vercel.app`.
+
+- La compilación instala `requirements.txt` y descarga `BASE-DE-DATOS-ARQUILA` en la carpeta `database` (`DATABASE_DIR=database`).
+- Al arrancar se ejecuta `python -m app.migrate --seed`, que aplica las migraciones pendientes y carga los datos de ejemplo, y luego `uvicorn`.
+- `/health` comprueba la base de datos; Render lo usa para saber si el servicio está sano.
+- En el plan gratuito el servicio se duerme tras unos minutos sin tráfico (la primera petición tarda unos 50 segundos) y la base caduca a los 30 días.
+- La interfaz de Vercel reenvía `/api` a la dirección de Render desde su `vercel.json`, así que comparten dominio y no hace falta CORS.
 
 ### En Vercel
 
