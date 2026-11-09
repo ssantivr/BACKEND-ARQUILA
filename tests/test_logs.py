@@ -88,3 +88,17 @@ def test_log_level_comes_from_the_environment(monkeypatch):
 
     monkeypatch.delenv("LOG_LEVEL")
     assert configure_logging().level == logging.INFO
+
+
+def test_each_response_carries_a_request_id(client):
+    generated = client.get("/health").headers["x-request-id"]
+
+    assert len(generated) == 32
+    assert (
+        client.get("/health", headers={"X-Request-ID": "abc-123"}).headers["x-request-id"]
+        == "abc-123"
+    )
+    assert (
+        client.get("/health", headers={"X-Request-ID": "bad id\n"}).headers["x-request-id"]
+        != "bad id\n"
+    )

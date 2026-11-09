@@ -1,5 +1,7 @@
 import os
+import re
 import time
+import uuid
 
 from fastapi import Depends, FastAPI, Request, status
 from fastapi.exception_handlers import request_validation_exception_handler
@@ -87,10 +89,24 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 
+REQUEST_ID_HEADER = "X-Request-ID"
+VALID_REQUEST_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
+
+
+def request_id_for(request: Request) -> str:
+    received = request.headers.get(REQUEST_ID_HEADER, "")
+
+    if VALID_REQUEST_ID.fullmatch(received):
+        return received
+
+    return uuid.uuid4().hex
+
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     started = time.perf_counter()
-    fields = {"method": request.method, "path": request.url.path}
+    request_id = request_id_for(request)
+    fields = {"method": request.method, "path": request.url.path, "request_id": request_id}
 
     try:
         response = await call_next(request)
@@ -102,6 +118,7 @@ async def log_requests(request: Request, call_next):
     fields["status"] = response.status_code
     fields["duration_ms"] = round((time.perf_counter() - started) * 1000, 1)
     logger.info("request", extra=fields)
+    response.headers[REQUEST_ID_HEADER] = request_id
 
     return response
 
