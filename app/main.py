@@ -1,12 +1,14 @@
 import os
 import time
 
-from fastapi import FastAPI, Request, status
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from app.api import (
     auth,
@@ -27,6 +29,7 @@ from app.api import (
     v1,
 )
 from app.api.v1.validation import translate
+from app.database import get_session
 from app.errors import (
     AuthenticationError,
     ConflictError,
@@ -196,5 +199,14 @@ def handle_file_too_large(request: Request, error: FileTooLargeError) -> JSONRes
 
 
 @app.get("/health")
-def health_check() -> dict[str, str]:
-    return {"status": "ok"}
+def health_check(session: Session = Depends(get_session)) -> JSONResponse:
+    try:
+        session.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        logger.exception("health_check_failed")
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"status": "error", "database": "unavailable"},
+        )
+
+    return JSONResponse(content={"status": "ok", "database": "ok"})
