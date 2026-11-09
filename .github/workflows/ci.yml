@@ -39,6 +39,8 @@ jobs:
           cache-dependency-path: requirements*.txt
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
+      - name: Check dependencies for known vulnerabilities
+        run: pip install pip-audit && pip-audit -r requirements.txt
       - name: Check lint and formatting
         run: |
           ruff format --check app tests
