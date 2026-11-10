@@ -72,7 +72,7 @@ Retrieval score below a threshold means: answer with the fixed "no tengo esa inf
 
 The sections above are the decisions as given by the owner. These are the facts checked against the repositories at R0 that the work rows must account for:
 
-- **H2 and the time zone.** `activity_log.created_at` is `TIMESTAMP` without a time zone today (`BASE-DE-DATOS-ARQUILA/migrations/021_activity_log.sql:9`; no timezone in `app/models.py:762`). H2 asks for `timestamptz`, so row R5b needs a type conversion migration (new, idempotent, with a down script) that H2 does not yet describe; it changes the column type of existing rows. How to convert existing values is for the owner to confirm at R5b.
+- **H2 and the time zone.** `activity_log.created_at` is `TIMESTAMP` without a time zone today (`BASE-DE-DATOS-ARQUILA/migrations/021_activity_log.sql:9`; no timezone in `app/models.py:762`). H2 asks for `timestamptz`, so row R5b needs a type conversion migration (new, idempotent, with a down script) that H2 does not yet describe; it changes the column type of existing rows. How to convert existing values is for the owner to confirm at R5b; before any conversion, check the real rows locally to confirm in which time zone the existing values were written (the conversion assumes UTC only if that check supports it).
 - **`labels.ts`.** The only `labels.ts` is `FRONTEND-ARQUILA/src/components/viewer/labels.ts` (3D viewer labels). H3 field names need either an extension of that file or a new labels module; decided in row R5b.
 - **`docs\TEST_ACCOUNTS.md` does not exist yet**; it is to be created in row R4. The daily reset workflow in C2 is `BASE-DE-DATOS-ARQUILA/.github/workflows/reset-demo.yml`.
 - **R19 files do not exist yet.** `BACKEND-ARQUILA/knowledge/`, `BACKEND-ARQUILA/scripts/ingest_knowledge.py` (the backend has no `scripts/` folder today; it is not the `scripts/` folder of BASE-DE-DATOS-ARQUILA) and `BACKEND-ARQUILA/tests/ai_eval/golden.yaml` are to be created in row R10b. The `knowledge_sources` and `knowledge_chunks` tables do not exist; the last migration on disk is `027_same_project_references.sql`.
@@ -83,12 +83,12 @@ The sections above are the decisions as given by the owner. These are the facts 
 
 ## Open decisions
 
-Status OPEN; the owner is asked at the right step. Row numbers are as recorded at R0; they do not yet match the block R order in `ARQUILA/PROGRESS.md` (the 200-character limit is R6, the map R8, the AI rows R10 and R11) and are pending confirmation by the owner.
+Status OPEN; the owner is asked at the right step. Row numbers follow the block R order in `ARQUILA/PROGRESS.md`, as confirmed by the owner after R0.
 
-- D-AI · model provider, row R9 · OPEN
+- D-AI · model provider, row R10 · OPEN
 - D-ENC · encryption of stored files, default no · OPEN
-- D-200 · rows over 200 characters, row R5 · OPEN
-- D-MAP · tile provider, row R7 · OPEN
+- D-200 · rows over 200 characters, row R6 · OPEN
+- D-MAP · tile provider, row R8 · OPEN
 - D-VEC · full-text or pgvector (K2) · OPEN
 - D-KB-1 · which jurisdiction and which official documents the owner will provide · OPEN
 - D-KB-2 · language scope: Spanish only or also English sources · OPEN
