@@ -87,14 +87,14 @@ The sections above are the decisions as given by the owner. These are the facts 
 
 ## Open decisions
 
-Status OPEN; the owner is asked at the right step. Row numbers follow the block R order in `ARQUILA/PROGRESS.md`, as confirmed by the owner after R0.
+Status OPEN unless marked DECIDED; the owner is asked at the right step. Row numbers follow the block R order in `ARQUILA/PROGRESS.md`, as confirmed by the owner after R0.
 
 - D-AI · model provider, row R10 · OPEN
 - D-ENC · encryption of stored files, default no · OPEN
 - D-200 · rows over 200 characters, row R6 · OPEN
 - D-MAP · tile provider, row R8 · OPEN
 - D-TZ · `activity_log.created_at` to `timestamptz`, row R5b · OPEN
-- D-R08 · R08 uploads in row R10: always the review modal ("nothing saved without confirmation") or the C7 auto-apply rules of R15 (C7 is in `FRONTEND-ARQUILA/docs/DECISIONS.md`) · OPEN
+- D-R08 · R08 uploads in row R10 · DECIDED: R08 uploads (PDF and PNG) follow the C7 auto-apply rule, the same flow as R15: version snapshot, one transaction, visible "Deshacer", AI-filled fields badged, and the review modal only when confidence is low or a required field is missing (C7 is in `FRONTEND-ARQUILA/docs/DECISIONS.md`)
 - D-VEC · full-text or pgvector (K2) · OPEN
 - D-KB-1 · which jurisdiction and which official documents the owner will provide · OPEN
 - D-KB-2 · language scope: Spanish only or also English sources · OPEN
