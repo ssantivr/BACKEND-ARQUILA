@@ -89,6 +89,7 @@ The sections above are the decisions as given by the owner. These are the facts 
 
 Status OPEN unless marked DECIDED; the owner is asked at the right step. Row numbers follow the block R order in `ARQUILA/PROGRESS.md`, as confirmed by the owner after R0.
 
+- D-DESIGN · visual direction, row R1 (frontend only) · DECIDED: option A · Studio Editorial; reason and record in `FRONTEND-ARQUILA/docs/DECISIONS.md`.
 - D-AI · model provider, row R10 · OPEN
 - D-ENC · encryption of stored files, default no · OPEN
 - D-200 · rows over 200 characters, row R6 · OPEN
