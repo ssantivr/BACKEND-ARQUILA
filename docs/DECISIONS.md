@@ -24,15 +24,19 @@ Model provider configured by environment variables, keys only in the backend. Fi
 
 ### H1 · History source
 
-Reuse `activity_log` (has `created_at`) and `GET /projects/{id}/activity`. First verify, read-only, which mutations write entries and which do not. Extend the existing endpoint (filters `entity_type`, `entity_id`, `user_id`, date range; pagination); no invented endpoints.
+Reuse `activity_log` (has `created_at`) and `GET /projects/{id}/activity`. First verify, read-only, which mutations write entries and which do not. Extend the existing endpoint (filters `entity_type`, `entity_id`, `user_id`, date range; pagination); no invented endpoints. The column type of `activity_log.created_at` is settled by D-TZ.
 
 ### H2 · What is recorded
 
-Server-side, same transaction as the change, database clock in UTC (`timestamptz`), actor (user or `ai`), action (`created`, `updated`, `deleted`, `restored`, `undone`, `redone`, `ai_applied`), entity type and id, and a `changes` JSON with only the changed fields as before and after. If `detail` cannot hold it, add a `changes jsonb` column with a new migration (next free number, idempotent, down script, `pg_dump` outside the repos first). Never log secrets, password data or file contents. Existing rows stay untouched.
+Server-side, same transaction as the change, database clock in UTC (`timestamptz`), actor (user or `ai`), action (`created`, `updated`, `deleted`, `restored`, `undone`, `redone`, `ai_applied`), entity type and id, and a `changes` JSON with only the changed fields as before and after. If `detail` cannot hold it, add a `changes jsonb` column with a new migration (next free number, idempotent, down script, `pg_dump` outside the repos first). Never log secrets, password data or file contents. Existing rows keep their values (no backfill of `changes`); only the type of `created_at` changes, per D-TZ.
 
 ### H3 · Display
 
 Spanish, `Intl.DateTimeFormat('es-CO')`, absolute and relative time, `<time datetime>`, UTC tooltip, grouped by day, field names through `labels.ts`, "Última modificación" on project and plan cards and headers, time shown in success toasts. Test with a fixed timezone.
+
+### D-TZ · timestamptz conversion (OPEN, row R5b)
+
+Convert `activity_log.created_at` to `timestamptz` with `USING created_at AT TIME ZONE 'UTC'` only after a read-only check on the local database confirms that the stored values are UTC. The check: `SHOW TimeZone`, the per-database and per-role settings in `pg_db_role_setting`, and recent rows compared with known event times; values come from the `CURRENT_TIMESTAMP` default in the session time zone, and the backend sets no time zone on the connection. Run the check separately on every database the migration will touch; if one is not UTC, stop and ask the owner. New migration (next free number, idempotent) with a down script in `rollback/NNN_down.sql` (`arquila-migration` skill); the ALTER runs only when `information_schema.columns.data_type` is `timestamp without time zone`, and the down script guards the reverse the same way, because running the conversion twice would shift every row. `pg_dump` outside the repos first. The type change rebuilds the `activity_log` indexes. In the same change set, `ActivityEntry.created_at` in `app/models.py` becomes `DateTime(timezone=True)`, with a test that the API emits an offset. Agents run it on local databases only; applying it to production is the owner's step, with the owner's explicit OK and a verified backup first.
 
 ## AI knowledge base (R19)
 
@@ -72,8 +76,8 @@ Retrieval score below a threshold means: answer with the fixed "no tengo esa inf
 
 The sections above are the decisions as given by the owner. These are the facts checked against the repositories at R0 that the work rows must account for:
 
-- **H2 and the time zone.** `activity_log.created_at` is `TIMESTAMP` without a time zone today (`BASE-DE-DATOS-ARQUILA/migrations/021_activity_log.sql:9`; no timezone in `app/models.py:762`). H2 asks for `timestamptz`, so row R5b needs a type conversion migration (new, idempotent, with a down script) that H2 does not yet describe; it changes the column type of existing rows. How to convert existing values is for the owner to confirm at R5b; before any conversion, check the real rows locally to confirm in which time zone the existing values were written (the conversion assumes UTC only if that check supports it).
-- **`labels.ts`.** The only `labels.ts` is `FRONTEND-ARQUILA/src/components/viewer/labels.ts` (3D viewer labels). H3 field names need either an extension of that file or a new labels module; decided in row R5b.
+- **H2 and the time zone.** `activity_log.created_at` is `TIMESTAMP` without a time zone today (`BASE-DE-DATOS-ARQUILA/migrations/021_activity_log.sql:9`; no timezone in `app/models.py:762`). H2 asks for `timestamptz`, so row R5b needs a type conversion migration; it changes the column type of existing rows. The conversion method is fixed by D-TZ; the read-only check that the stored values are UTC happens at R5b.
+- **`labels.ts`.** The only `labels.ts` today is `FRONTEND-ARQUILA/src/components/viewer/labels.ts` (3D viewer labels). The `FRONTEND-ARQUILA/src/messages/labels.ts` for H3 field names is created in row R3, together with `FRONTEND-ARQUILA/src/messages/es.ts`; row R5b only uses them.
 - **`docs\TEST_ACCOUNTS.md` does not exist yet**; it is to be created in row R4. The daily reset workflow in C2 is `BASE-DE-DATOS-ARQUILA/.github/workflows/reset-demo.yml`.
 - **R19 files do not exist yet.** `BACKEND-ARQUILA/knowledge/`, `BACKEND-ARQUILA/scripts/ingest_knowledge.py` (the backend has no `scripts/` folder today; it is not the `scripts/` folder of BASE-DE-DATOS-ARQUILA) and `BACKEND-ARQUILA/tests/ai_eval/golden.yaml` are to be created in row R10b. The `knowledge_sources` and `knowledge_chunks` tables do not exist; the last migration on disk is `027_same_project_references.sql`.
 - **K3 and C3.** C3 does not yet list curated knowledge among the 200-character exceptions. Until the owner adds it to C3, K3 is the source of that exception (`knowledge_chunks.content`, up to 2000 characters).
@@ -89,6 +93,8 @@ Status OPEN; the owner is asked at the right step. Row numbers follow the block 
 - D-ENC · encryption of stored files, default no · OPEN
 - D-200 · rows over 200 characters, row R6 · OPEN
 - D-MAP · tile provider, row R8 · OPEN
+- D-TZ · `activity_log.created_at` to `timestamptz`, row R5b · OPEN
+- D-R08 · R08 uploads in row R10: always the review modal ("nothing saved without confirmation") or the C7 auto-apply rules of R15 (C7 is in `FRONTEND-ARQUILA/docs/DECISIONS.md`) · OPEN
 - D-VEC · full-text or pgvector (K2) · OPEN
 - D-KB-1 · which jurisdiction and which official documents the owner will provide · OPEN
 - D-KB-2 · language scope: Spanish only or also English sources · OPEN
