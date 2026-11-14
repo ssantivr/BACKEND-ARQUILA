@@ -72,6 +72,15 @@ Retrieval score below a threshold means: answer with the fixed "no tengo esa inf
 
 `tests/ai_eval/golden.yaml` with at least 60 questions: 20 application help, 20 about seeded project data, 10 domain glossary, 10 out of scope (must trigger the gate). Deterministic tests with a fake provider: retrieval recall at 3 at least 85 percent on answerable questions, gate triggers on 100 percent of out-of-scope questions, citations present when documents are used, no cross-user data leak (a question about another user's project returns nothing). An optional manual run against the real provider is documented but is never a CI requirement.
 
+## Data structures (R20)
+
+Short copy; the canonical text is in `FRONTEND-ARQUILA/docs/DECISIONS.md`.
+
+- **S-DS1 · Hand-written.** Generic, iterable, `size`, `isEmpty`, `clear`, documented Big-O; native arrays allowed inside.
+- **S-DS2 · Real usage only.** Every structure serves a real feature; no decorative code in production paths.
+- **S-DS3 · Iterative traversal.** No deep recursion; Python uses `Generic[T]` and type hints.
+- **S-DS4 · Where they live.** `app/structures/` only if a backend feature needs a structure (DS0 decides); duplicates are merged, not copied.
+
 ## Verified state at R0
 
 The sections above are the decisions as given by the owner. These are the facts checked against the repositories at R0 that the work rows must account for:
