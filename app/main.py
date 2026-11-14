@@ -47,6 +47,7 @@ from app.errors import (
     UnsupportedFileError,
 )
 from app.logs import logger
+from app.services.activity_log import MODULE_HEADER, current_module, module_from_header
 
 DEFAULT_APP_URL = "http://localhost:5173"
 
@@ -65,7 +66,7 @@ app.add_middleware(
     allow_origins=allowed_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_headers=["Content-Type", "Authorization", MODULE_HEADER],
     expose_headers=["X-Total-Count"],
 )
 
@@ -93,6 +94,17 @@ async def add_security_headers(request: Request, call_next):
         response.headers.setdefault("Strict-Transport-Security", HSTS)
 
     return response
+
+
+@app.middleware("http")
+async def remember_source_module(request: Request, call_next):
+    """The module of the frontend that sent the request, for the change history (R18)."""
+    token = current_module.set(module_from_header(request.headers.get(MODULE_HEADER)))
+
+    try:
+        return await call_next(request)
+    finally:
+        current_module.reset(token)
 
 
 @app.middleware("http")

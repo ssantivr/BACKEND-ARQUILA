@@ -44,6 +44,9 @@ class UndoService(ProjectScopedService):
 
         try:
             self.session.add(instance)
+            # Flushed first, so the entry has the new id and is committed with the row.
+            self.session.flush()
+            self._record("restored", deleted.kind, project_id, instance.id, deleted.label)
             self.session.commit()
         except IntegrityError:
             self.session.rollback()
@@ -53,7 +56,6 @@ class UndoService(ProjectScopedService):
             ) from None
 
         undo_history.record_restored(RestoredRecord(deleted, instance.id), self.session)
-        self._record("restored", deleted.kind, project_id, instance.id, deleted.label)
 
         return deleted
 
@@ -73,8 +75,10 @@ class UndoService(ProjectScopedService):
         label = getattr(instance, "name", None) or instance.title
         deleted = snapshot(restored.deleted.kind, label, instance, restored.deleted.children)
         self.session.delete(instance)
+        self._record(
+            "deleted", deleted.kind, project_id, restored.restored_id, deleted.label, via="redo"
+        )
         self.session.commit()
         undo_history.record(deleted, keep_redo=True, session=self.session)
-        self._record("deleted", deleted.kind, project_id, restored.restored_id, deleted.label)
 
         return deleted

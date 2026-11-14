@@ -5,6 +5,7 @@ from app.models import Elevation, User
 from app.repositories.elevation_repository import ElevationRepository
 from app.repositories.file_repository import FileRepository
 from app.schemas import ElevationCreate, ElevationUpdate
+from app.services.activity_log import field_changes
 from app.services.base import ProjectScopedService
 from app.services.undo_history import snapshot, undo_history
 
@@ -19,8 +20,9 @@ class ElevationService(ProjectScopedService):
         self._ensure_project_exists(project_id)
         self._ensure_file_in_project(data.file_id, project_id)
 
-        elevation = self.elevations.save(Elevation(project_id=project_id, **data.model_dump()))
+        elevation = self._pending(Elevation(project_id=project_id, **data.model_dump()))
         self._record("created", "elevation", project_id, elevation.id, elevation.title)
+        elevation = self.elevations.save(elevation)
 
         return elevation
 
@@ -48,27 +50,32 @@ class ElevationService(ProjectScopedService):
 
         self._ensure_file_in_project(changes.get("file_id"), elevation.project_id)
 
+        before, after = field_changes(elevation, changes)
+
         for field, value in changes.items():
             setattr(elevation, field, value)
 
+        if after:
+            self._record(
+                "updated",
+                "elevation",
+                elevation.project_id,
+                elevation.id,
+                elevation.title,
+                fields=sorted(after),
+                old_value=before,
+                new_value=after,
+            )
         elevation = self.elevations.save(elevation)
-        self._record(
-            "updated",
-            "elevation",
-            elevation.project_id,
-            elevation.id,
-            elevation.title,
-            fields=sorted(changes),
-        )
 
         return elevation
 
     def delete(self, elevation_id: int) -> None:
         elevation = self.get(elevation_id)
         deleted = snapshot("elevation", elevation.title, elevation)
+        self._record("deleted", "elevation", deleted.project_id, elevation_id, deleted.label)
         self.elevations.delete(elevation)
         undo_history.record(deleted, session=self.session)
-        self._record("deleted", "elevation", deleted.project_id, elevation_id, deleted.label)
 
     def _ensure_file_in_project(self, file_id: int | None, project_id: int) -> None:
         if file_id is not None and self.files.get_in_project(file_id, project_id) is None:

@@ -57,6 +57,7 @@ En el repositorio, `git ls-tree origin/main migrations/` (BASE-DE-DATOS-ARQUILA,
 - [ ] Después de aplicar, la misma consulta muestra de `001_initial_schema.sql` a `027_same_project_references.sql`: 27 filas.
 - [ ] Existen `runtime_state` (011) y `file_contents` (010). Sin ellas el registro, el inicio de sesión, deshacer y la subida de archivos responden 500 y `/health` sigue respondiendo 200.
 - [ ] La rama de Neon que usan las previews: misma consulta de `schema_migrations`, mismas 27 filas.
+- [ ] Migration 028 (`activity_log`, R18): before applying it, run `SHOW TimeZone;` on that database. 028 reads the old timestamps in that zone (locally it was `America/Bogota`); if production is not UTC, confirm with the owner. Lock: `ACCESS EXCLUSIVE` on `activity_log` while it rewrites the table and its 3 indexes (proportional to the number of rows). Afterwards: 28 rows in `schema_migrations`. Rollback: `rollback/028_down.sql`.
 
 ## 4. A1: la demo en producción
 

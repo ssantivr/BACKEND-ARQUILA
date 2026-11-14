@@ -28,6 +28,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 JsonObject = JSON().with_variant(JSONB(), "postgresql")
+# A JSON column that may be empty: Python None is stored as SQL NULL, not as the JSON value
+# null, so a CHECK such as `col IS NULL OR jsonb_typeof(col) = 'object'` accepts it.
+JsonObjectOrNull = JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql")
 # SQLite only numbers a primary key by itself when it is a plain INTEGER.
 BigIdentifier = BigInteger().with_variant(Integer(), "sqlite")
 
@@ -748,7 +751,13 @@ class ProjectVersion(Base):
 
 class ActivityEntry(Base):
     __tablename__ = "activity_log"
-    __table_args__ = (CheckConstraint("entity_id IS NULL OR entity_type IS NOT NULL"),)
+    __table_args__ = (
+        CheckConstraint("entity_id IS NULL OR entity_type IS NOT NULL"),
+        CheckConstraint(
+            "origin IS NULL OR origin IN ('user', 'ai', 'system')",
+            name="activity_log_origin_check",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigIdentifier, primary_key=True)
     project_id: Mapped[int | None] = mapped_column(
@@ -759,7 +768,11 @@ class ActivityEntry(Base):
     entity_type: Mapped[str | None] = mapped_column(String(40))
     entity_id: Mapped[int | None] = mapped_column()
     detail: Mapped[dict[str, Any]] = mapped_column(JsonObject, default=dict)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    origin: Mapped[str | None] = mapped_column(String(10))
+    source_module: Mapped[str | None] = mapped_column(String(40))
+    old_value: Mapped[dict[str, Any] | None] = mapped_column(JsonObjectOrNull)
+    new_value: Mapped[dict[str, Any] | None] = mapped_column(JsonObjectOrNull)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Notification(Base):

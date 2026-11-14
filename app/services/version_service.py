@@ -23,7 +23,8 @@ class VersionService(ProjectScopedService):
 
     def create(self, project_id: int, label: str | None = None) -> ProjectVersion:
         project = self._project(project_id)
-        version = self._save(project, label)
+        # Flushed, not committed, so the version and its entry are saved together.
+        version = self.versions.add(self._new(project, label))
         self._record(
             "version_saved",
             "version",
@@ -32,6 +33,8 @@ class VersionService(ProjectScopedService):
             label or f"Version {version.version_number}",
             version_number=version.version_number,
         )
+        self.session.commit()
+        self.session.refresh(version)
 
         return version
 
@@ -62,6 +65,15 @@ class VersionService(ProjectScopedService):
 
         try:
             SnapshotWriter(self.session, project).apply(version.snapshot)
+            self._record(
+                "version_restored",
+                "version",
+                project.id,
+                version.id,
+                version.label or f"Version {version.version_number}",
+                version_number=version.version_number,
+                backup_version_id=backup.id,
+            )
             self.session.commit()
         except (IntegrityError, DataError) as error:
             # What only the database checks, such as a repeated name or a rule of a column.
@@ -75,20 +87,8 @@ class VersionService(ProjectScopedService):
 
         # What was deleted belongs to a state that no longer exists.
         undo_history.forget(project.id, self.session)
-        self._record(
-            "version_restored",
-            "version",
-            project.id,
-            version.id,
-            version.label or f"Version {version.version_number}",
-            version_number=version.version_number,
-            backup_version_id=backup.id,
-        )
 
         return project
-
-    def _save(self, project: Project, label: str | None) -> ProjectVersion:
-        return self.versions.save(self._new(project, label))
 
     def _new(self, project: Project, label: str | None) -> ProjectVersion:
         return ProjectVersion(

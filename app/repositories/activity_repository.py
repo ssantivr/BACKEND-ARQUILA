@@ -9,8 +9,14 @@ class ActivityRepository:
         self.session = session
 
     def add(self, entry: ActivityEntry) -> ActivityEntry:
+        """Adds the entry to the open transaction without committing it.
+
+        The service commits it together with the change it describes, so a change is never saved
+        without its entry, nor an entry without its change. The flush sends it now, so a rejected
+        entry fails before the change is committed.
+        """
         self.session.add(entry)
-        self.session.commit()
+        self.session.flush()
         return entry
 
     def latest(self, project_id: int, action: str) -> ActivityEntry | None:

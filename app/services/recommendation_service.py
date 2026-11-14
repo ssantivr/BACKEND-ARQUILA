@@ -22,12 +22,13 @@ class RecommendationService(ProjectScopedService):
     def create(self, project_id: int, data: RecommendationCreate) -> Recommendation:
         self._ensure_project_exists(project_id)
 
-        recommendation = self.recommendations.save(
+        recommendation = self._pending(
             Recommendation(project_id=project_id, source="user", **data.model_dump())
         )
         self._record(
             "created", "recommendation", project_id, recommendation.id, recommendation.category
         )
+        recommendation = self.recommendations.save(recommendation)
 
         return recommendation
 
@@ -71,5 +72,5 @@ class RecommendationService(ProjectScopedService):
             raise NotFoundError("Recommendation not found")
 
         project_id, category = recommendation.project_id, recommendation.category
-        self.recommendations.delete(recommendation)
         self._record("deleted", "recommendation", project_id, recommendation_id, category)
+        self.recommendations.delete(recommendation)

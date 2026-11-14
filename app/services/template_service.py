@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from app.errors import NotFoundError
 from app.models import Material, Plan, Project, Room, StructuralComponent, Terrain, User
 from app.repositories.project_repository import ProjectRepository
+from app.services.activity_log import record_activity
 from app.services.project_templates import (
     COLUMN_SIDE_M,
     TEMPLATES,
@@ -56,6 +57,16 @@ class TemplateService:
         ]
         self.session.add(project)
         self.session.flush()
+        record_activity(
+            self.session,
+            self.user,
+            project.id,
+            "created",
+            "project",
+            project.id,
+            label=project.name,
+            template_id=template.id,
+        )
 
         for plan, level in zip(project.plans, template.levels, strict=True):
             plan.rooms = [

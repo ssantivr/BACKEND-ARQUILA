@@ -28,9 +28,3 @@ class VersionRepository:
         self.session.add(version)
         self.session.flush()
         return version
-
-    def save(self, version: ProjectVersion) -> ProjectVersion:
-        self.session.add(version)
-        self.session.commit()
-        self.session.refresh(version)
-        return version

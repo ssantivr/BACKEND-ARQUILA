@@ -1,5 +1,5 @@
 import json
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
@@ -485,6 +485,11 @@ ShortKey = Annotated[str, Field(min_length=1, max_length=40)]
 FlatValue = bool | float | Annotated[str, Field(max_length=200)]
 
 
+def as_utc(value: datetime) -> datetime:
+    """An instant with its offset. SQLite hands back naive values, which are UTC."""
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
 class ActivityRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -495,7 +500,11 @@ class ActivityRead(BaseModel):
     entity_type: str | None
     entity_id: int | None
     detail: dict[str, Any]
-    created_at: datetime
+    origin: Literal["user", "ai", "system"] | None
+    source_module: str | None
+    old_value: dict[str, Any] | None
+    new_value: dict[str, Any] | None
+    created_at: Annotated[datetime, AfterValidator(as_utc)]
 
 
 class ActivityPage(BaseModel):

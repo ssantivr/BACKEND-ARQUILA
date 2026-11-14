@@ -4,6 +4,7 @@ from app.errors import NotFoundError
 from app.models import Terrain, TerrainPoint, User
 from app.repositories.terrain_repository import TerrainRepository
 from app.schemas import TerrainCreate, TerrainPointData, TerrainUpdate
+from app.services.activity_log import field_changes
 from app.services.base import ProjectScopedService
 from app.services.undo_history import snapshot, undo_history
 
@@ -26,8 +27,9 @@ class TerrainService(ProjectScopedService):
         values = data.model_dump(exclude={"points"})
         terrain = Terrain(project_id=project_id, **values)
         terrain.points = build_points(data.points)
-        terrain = self.terrains.save(terrain)
+        terrain = self._pending(terrain)
         self._record("created", "terrain", project_id, terrain.id, terrain.name)
+        terrain = self.terrains.save(terrain)
 
         return terrain
 
@@ -52,27 +54,40 @@ class TerrainService(ProjectScopedService):
             if changes.get(required, "") is None:
                 del changes[required]
 
-        fields = sorted(changes)
+        points_replaced = "points" in changes
 
-        if "points" in changes:
+        if points_replaced:
             del changes["points"]
             terrain.points.clear()
             self.session.flush()
             terrain.points = build_points(data.points)
 
+        before, after = field_changes(terrain, changes)
+
         for field, value in changes.items():
             setattr(terrain, field, value)
 
+        # Replaced points are listed as a field; their values stay out of the log.
+        fields = sorted([*after, "points"] if points_replaced else after)
+
+        if fields:
+            self._record(
+                "updated",
+                "terrain",
+                terrain.project_id,
+                terrain.id,
+                terrain.name,
+                fields=fields,
+                old_value=before,
+                new_value=after,
+            )
         terrain = self.terrains.save(terrain)
-        self._record(
-            "updated", "terrain", terrain.project_id, terrain.id, terrain.name, fields=fields
-        )
 
         return terrain
 
     def delete(self, terrain_id: int) -> None:
         terrain = self.get(terrain_id)
         deleted = snapshot("terrain", terrain.name, terrain, ("points",))
+        self._record("deleted", "terrain", deleted.project_id, terrain_id, deleted.label)
         self.terrains.delete(terrain)
         undo_history.record(deleted, session=self.session)
-        self._record("deleted", "terrain", deleted.project_id, terrain_id, deleted.label)

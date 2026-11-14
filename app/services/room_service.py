@@ -5,6 +5,7 @@ from app.models import Room, User
 from app.repositories.plan_repository import PlanRepository
 from app.repositories.room_repository import RoomRepository
 from app.schemas import RoomCreate, RoomUpdate
+from app.services.activity_log import field_changes
 from app.services.base import ProjectScopedService
 from app.services.undo_history import snapshot, undo_history
 
@@ -19,8 +20,9 @@ class RoomService(ProjectScopedService):
         self._ensure_project_exists(project_id)
         self._ensure_plan_in_project(data.plan_id, project_id)
 
-        room = self.rooms.save(Room(project_id=project_id, **data.model_dump()))
+        room = self._pending(Room(project_id=project_id, **data.model_dump()))
         self._record("created", "room", project_id, room.id, room.name)
+        room = self.rooms.save(room)
 
         return room
 
@@ -48,20 +50,32 @@ class RoomService(ProjectScopedService):
         if "plan_id" in changes:
             self._ensure_plan_in_project(changes["plan_id"], room.project_id)
 
+        before, after = field_changes(room, changes)
+
         for field, value in changes.items():
             setattr(room, field, value)
 
+        if after:
+            self._record(
+                "updated",
+                "room",
+                room.project_id,
+                room.id,
+                room.name,
+                fields=sorted(after),
+                old_value=before,
+                new_value=after,
+            )
         room = self.rooms.save(room)
-        self._record("updated", "room", room.project_id, room.id, room.name, fields=sorted(changes))
 
         return room
 
     def delete(self, room_id: int) -> None:
         room = self.get(room_id)
         deleted = snapshot("room", room.name, room)
+        self._record("deleted", "room", deleted.project_id, room_id, deleted.label)
         self.rooms.delete(room)
         undo_history.record(deleted, session=self.session)
-        self._record("deleted", "room", deleted.project_id, room_id, deleted.label)
 
     def _ensure_plan_in_project(self, plan_id: int, project_id: int) -> None:
         plan = self.plans.get(plan_id)

@@ -34,7 +34,7 @@ Server-side, same transaction as the change, database clock in UTC (`timestamptz
 
 Spanish, `Intl.DateTimeFormat('es-CO')`, absolute and relative time, `<time datetime>`, UTC tooltip, grouped by day, field names through `labels.ts`, "Última modificación" on project and plan cards and headers, time shown in success toasts. Test with a fixed timezone.
 
-### D-TZ · timestamptz conversion (OPEN, row R5b)
+### D-TZ · timestamptz conversion (row R5b; status in the open decisions list)
 
 Convert `activity_log.created_at` to `timestamptz` with `USING created_at AT TIME ZONE 'UTC'` only after a read-only check on the local database confirms that the stored values are UTC. The check: `SHOW TimeZone`, the per-database and per-role settings in `pg_db_role_setting`, and recent rows compared with known event times; values come from the `CURRENT_TIMESTAMP` default in the session time zone, and the backend sets no time zone on the connection. Run the check separately on every database the migration will touch; if one is not UTC, stop and ask the owner. New migration (next free number, idempotent) with a down script in `rollback/NNN_down.sql` (`arquila-migration` skill); the ALTER runs only when `information_schema.columns.data_type` is `timestamp without time zone`, and the down script guards the reverse the same way, because running the conversion twice would shift every row. `pg_dump` outside the repos first. The type change rebuilds the `activity_log` indexes. In the same change set, `ActivityEntry.created_at` in `app/models.py` becomes `DateTime(timezone=True)`, with a test that the API emits an offset. Agents run it on local databases only; applying it to production is the owner's step, with the owner's explicit OK and a verified backup first.
 
@@ -94,7 +94,8 @@ Status OPEN unless marked DECIDED; the owner is asked at the right step. Row num
 - D-ENC · encryption of stored files, default no · OPEN
 - D-200 · rows over 200 characters, row R6 · OPEN
 - D-MAP · tile provider, row R8 · OPEN
-- D-TZ · `activity_log.created_at` to `timestamptz`, row R5b · OPEN
+- D-TZ · `activity_log.created_at` to `timestamptz` · DECIDED in migration 028 (canonical text in `FRONTEND-ARQUILA/docs/DECISIONS.md`): the local server runs in `America/Bogota`, so 028 reads the old values with `AT TIME ZONE current_setting('TimeZone')`, which equals `'UTC'` on a UTC server. Production: the owner checks `SHOW TimeZone` there before applying. Approved by the owner on 2026-11-14 (session TimeZone `America/Bogota` confirmed locally with `SHOW TimeZone`).
+- D-H2-VOCAB · undo and redo action names · DECIDED by the owner on 2026-11-14: keep `restored` for a server undo and `deleted` with `detail.via = "redo"` for a server redo, instead of `undone` and `redone`. Recording `origin = "ai"` and `ai_applied` waits for the AI apply flow (R15, R08); until then AI coverage of R18 is N/A.
 - D-R08 · R08 uploads in row R10 · DECIDED: R08 uploads (PDF and PNG) follow the C7 auto-apply rule, the same flow as R15: version snapshot, one transaction, visible "Deshacer", AI-filled fields badged, and the review modal only when confidence is low or a required field is missing (C7 is in `FRONTEND-ARQUILA/docs/DECISIONS.md`)
 - D-VEC · full-text or pgvector (K2) · OPEN
 - D-KB-1 · which jurisdiction and which official documents the owner will provide · OPEN

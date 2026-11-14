@@ -23,6 +23,13 @@ class ProjectScopedService:
         if not self._owns(project_id):
             raise NotFoundError("Project not found")
 
+    def _pending(self, entity: Any) -> Any:
+        """Adds a new row and flushes it, so it has its id before its entry is recorded."""
+        self.session.add(entity)
+        self.session.flush()
+
+        return entity
+
     def _record(
         self,
         action: str,

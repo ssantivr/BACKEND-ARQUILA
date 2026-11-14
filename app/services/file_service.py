@@ -27,10 +27,7 @@ class FileService(ProjectScopedService):
     def create(self, project_id: int, filename: str | None, stream: BinaryIO) -> File:
         self._ensure_project_exists(project_id)
 
-        file = self._store(project_id, filename, stream)
-        self._record("created", "file", project_id, file.id, file.filename)
-
-        return file
+        return self._store(project_id, filename, stream)
 
     def create_avatar(self, filename: str | None, stream: BinaryIO) -> File:
         """A picture of the user, outside every project."""
@@ -44,10 +41,11 @@ class FileService(ProjectScopedService):
         allowed: tuple[str, ...] | None = None,
         rejection: str | None = None,
     ) -> File:
+        """Stores the upload; a project file is committed together with its history entry."""
         if storage.keeps_files_in_database():
             data, mime_type = storage.read(stream, allowed, rejection)
 
-            return self.files.save(
+            return self._save(
                 File(
                     project_id=project_id,
                     uploaded_by=self.user.id,
@@ -62,7 +60,7 @@ class FileService(ProjectScopedService):
         stored_name, mime_type, size = storage.store(stream, allowed, rejection)
 
         try:
-            return self.files.save(
+            return self._save(
                 File(
                     project_id=project_id,
                     uploaded_by=self.user.id,
@@ -75,6 +73,17 @@ class FileService(ProjectScopedService):
         except BaseException:
             storage.remove(stored_name)
             raise
+
+    def _save(self, file: File) -> File:
+        if file.project_id is None:
+            return self.files.save(file)
+
+        self._pending(file)
+        self._record("created", "file", file.project_id, file.id, file.filename)
+        self.session.commit()
+        self.session.refresh(file)
+
+        return file
 
     def list(self, project_id: int) -> list[File]:
         self._ensure_project_exists(project_id)
@@ -117,8 +126,8 @@ class FileService(ProjectScopedService):
         stored_name = file.storage_path
         project_id, filename = file.project_id, file.filename
 
-        self.files.delete(file)
-        storage.remove(stored_name)
-
         if project_id is not None:
             self._record("deleted", "file", project_id, file_id, filename)
+
+        self.files.delete(file)
+        storage.remove(stored_name)

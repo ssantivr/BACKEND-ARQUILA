@@ -160,6 +160,19 @@ class StructureService(ProjectScopedService):
 
     def set_roof(self, project_id: int, roof: str) -> None:
         project = self._project(project_id)
+
+        if project.roof != roof:
+            self._record(
+                "updated",
+                "project",
+                project.id,
+                project.id,
+                project.name,
+                fields=["roof"],
+                old_value={"roof": project.roof},
+                new_value={"roof": roof},
+            )
+
         project.roof = roof
         self.projects.save(project)
 
@@ -178,6 +191,19 @@ class StructureService(ProjectScopedService):
 
         if element is None or element.project_id != project_id:
             raise NotFoundError("Element not found")
+
+        if element.surface != surface:
+            entity = {"room": "room", "volume": "plan"}.get(kind, "component")
+            self._record(
+                "updated",
+                entity,
+                project_id,
+                element.id,
+                getattr(element, "name", None) or element.title,
+                fields=["surface"],
+                old_value={"surface": element.surface},
+                new_value={"surface": surface},
+            )
 
         element.surface = surface
         repository.save(element)

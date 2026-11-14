@@ -4,6 +4,7 @@ from app.errors import ConflictError, NotFoundError
 from app.models import Material, User
 from app.repositories.material_repository import MaterialRepository
 from app.schemas import MaterialCreate, MaterialUpdate
+from app.services.activity_log import field_changes
 from app.services.base import ProjectScopedService
 from app.services.undo_history import snapshot, undo_history
 
@@ -17,8 +18,9 @@ class MaterialService(ProjectScopedService):
         self._ensure_project_exists(project_id)
         self._ensure_name_is_free(project_id, data.name)
 
-        material = self.materials.save(Material(project_id=project_id, **data.model_dump()))
+        material = self._pending(Material(project_id=project_id, **data.model_dump()))
         self._record("created", "material", project_id, material.id, material.name)
+        material = self.materials.save(material)
 
         return material
 
@@ -46,27 +48,32 @@ class MaterialService(ProjectScopedService):
         if "name" in changes and changes["name"] != material.name:
             self._ensure_name_is_free(material.project_id, changes["name"])
 
+        before, after = field_changes(material, changes)
+
         for field, value in changes.items():
             setattr(material, field, value)
 
+        if after:
+            self._record(
+                "updated",
+                "material",
+                material.project_id,
+                material.id,
+                material.name,
+                fields=sorted(after),
+                old_value=before,
+                new_value=after,
+            )
         material = self.materials.save(material)
-        self._record(
-            "updated",
-            "material",
-            material.project_id,
-            material.id,
-            material.name,
-            fields=sorted(changes),
-        )
 
         return material
 
     def delete(self, material_id: int) -> None:
         material = self.get(material_id)
         deleted = snapshot("material", material.name, material)
+        self._record("deleted", "material", deleted.project_id, material_id, deleted.label)
         self.materials.delete(material)
         undo_history.record(deleted, session=self.session)
-        self._record("deleted", "material", deleted.project_id, material_id, deleted.label)
 
     def _ensure_name_is_free(self, project_id: int, name: str) -> None:
         if self.materials.get_by_project_and_name(project_id, name) is not None:

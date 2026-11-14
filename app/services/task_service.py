@@ -4,6 +4,7 @@ from app.errors import InvalidDataError, NotFoundError
 from app.models import Task, User
 from app.repositories.task_repository import TaskRepository
 from app.schemas import TaskCreate, TaskUpdate
+from app.services.activity_log import field_changes
 from app.services.base import ProjectScopedService, changes_in
 
 DONE = "done"
@@ -26,8 +27,9 @@ class TaskService(ProjectScopedService):
 
         self._ensure_done_is_complete(values["status"], values["progress"])
 
-        task = self.tasks.save(Task(project_id=project_id, created_by=self.user.id, **values))
+        task = self._pending(Task(project_id=project_id, created_by=self.user.id, **values))
         self._record("created", "task", project_id, task.id, task.title)
+        task = self.tasks.save(task)
 
         return task
 
@@ -58,21 +60,31 @@ class TaskService(ProjectScopedService):
             changes.get("status", task.status), changes.get("progress", task.progress)
         )
 
+        before, after = field_changes(task, changes)
+
         for field, value in changes.items():
             setattr(task, field, value)
 
+        if after:
+            self._record(
+                "updated",
+                "task",
+                task.project_id,
+                task.id,
+                task.title,
+                fields=sorted(after),
+                old_value=before,
+                new_value=after,
+            )
         task = self.tasks.save(task)
-        self._record(
-            "updated", "task", task.project_id, task.id, task.title, fields=sorted(changes)
-        )
 
         return task
 
     def delete(self, task_id: int) -> None:
         task = self.get(task_id)
         project_id, title = task.project_id, task.title
-        self.tasks.delete(task)
         self._record("deleted", "task", project_id, task_id, title)
+        self.tasks.delete(task)
 
     def _ensure_assignee_can_see_the_project(self, assignee_id: int | None) -> None:
         # Projects are not shared, so only their owner can work on their tasks.

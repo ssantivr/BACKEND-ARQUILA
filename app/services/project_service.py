@@ -11,7 +11,7 @@ from app.repositories.activity_repository import ActivityRepository
 from app.repositories.file_repository import FileRepository
 from app.repositories.project_repository import NAME_LENGTH, ProjectFilters, ProjectRepository
 from app.schemas import ProjectCreate, ProjectUpdate
-from app.services.activity_log import record_activity
+from app.services.activity_log import field_changes, record_activity
 from app.services.project_snapshot import SnapshotWriter, take
 from app.services.undo_history import undo_history
 
@@ -38,8 +38,10 @@ class ProjectService:
         if project.status == "archived":
             project.archived_at = utc_now()
 
-        project = self.projects.save(project)
+        self.projects.session.add(project)
+        self.projects.session.flush()
         self._record(project, "created")
+        project = self.projects.save(project)
 
         return project
 
@@ -93,11 +95,16 @@ class ProjectService:
         if "status" in changes:
             self._sync_archive_date(project, changes["status"])
 
+        before, after = field_changes(project, changes)
+
         for field, value in changes.items():
             setattr(project, field, value)
 
+        if after:
+            self._record(
+                project, "updated", fields=sorted(after), old_value=before, new_value=after
+            )
         project = self.projects.save(project)
-        self._record(project, "updated", fields=sorted(changes))
 
         return project
 
@@ -110,8 +117,8 @@ class ProjectService:
         previous_status = project.status
         self._sync_archive_date(project, "archived")
         project.status = "archived"
-        project = self.projects.save(project)
         self._record(project, "archived", previous_status=previous_status)
+        project = self.projects.save(project)
 
         return project
 
@@ -128,8 +135,8 @@ class ProjectService:
             previous_status if previous_status in ("draft", "active") else STATUS_AFTER_ARCHIVE
         )
         project.archived_at = None
-        project = self.projects.save(project)
         self._record(project, "unarchived")
+        project = self.projects.save(project)
 
         return project
 
@@ -156,8 +163,8 @@ class ProjectService:
         session.flush()
 
         SnapshotWriter(session, copy).apply(take(source), with_project_fields=False)
-        copy = self.projects.save(copy)
         self._record(copy, "duplicated", source_project_id=source.id)
+        copy = self.projects.save(copy)
 
         return copy
 
@@ -167,16 +174,16 @@ class ProjectService:
         name = project.name
 
         self.files.detach_avatars([file.id for file in project.files])
+        # The entries of the project go with it; this one stays in the history of the user. It
+        # is written in the same transaction as the deletion.
+        record_activity(
+            self.projects.session, self.user, None, "deleted", "project", project_id, label=name
+        )
         self.projects.delete(project)
         undo_history.forget(project_id, self.projects.session)
 
         for stored_name in stored_names:
             storage.remove(stored_name)
-
-        # The entries of the project go with it; this one stays in the history of the user.
-        record_activity(
-            self.projects.session, self.user, None, "deleted", "project", project_id, label=name
-        )
 
     def _sync_archive_date(self, project: Project, status: str) -> None:
         if status == "archived":

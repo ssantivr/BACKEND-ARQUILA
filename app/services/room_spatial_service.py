@@ -5,6 +5,7 @@ from app.dtos import RoomSpatialUpdate
 from app.errors import NotFoundError
 from app.models import Room, User
 from app.repositories.room_repository import RoomRepository
+from app.services.activity_log import field_changes
 from app.services.base import ApiScopedService, changes_in
 from app.services.property_service import UnitService
 
@@ -49,7 +50,21 @@ class RoomSpatialService(ApiScopedService):
         if unit_id is not None and self.units.project_of(unit_id) != room.project_id:
             raise NotFoundError("Esa unidad no pertenece al proyecto del cuarto.")
 
+        before, after = field_changes(room, changes)
+
         for field, value in changes.items():
             setattr(room, field, value)
+
+        if after:
+            self._record(
+                "updated",
+                "room",
+                room.project_id,
+                room.id,
+                room.name,
+                fields=sorted(after),
+                old_value=before,
+                new_value=after,
+            )
 
         return self.rooms.save(room)
