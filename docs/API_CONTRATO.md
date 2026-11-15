@@ -225,7 +225,7 @@ Respuesta 200, la más reciente primero (por `created_at` y, a igual instante, p
       "entity_type": "terrain",
       "entity_id": 5,
       "detail": {"label": "Lote 14", "fields": ["area_m2", "soil_type"]},
-      "created_at": "2026-10-20T16:05:12"
+      "created_at": "2026-10-20T16:05:12Z"
     }
   ],
   "total": 31,
@@ -233,6 +233,8 @@ Respuesta 200, la más reciente primero (por `created_at` y, a igual instante, p
   "page_size": 50
 }
 ```
+
+`created_at` es un instante UTC con su desfase (`Z`), guardado como `timestamptz` desde la migración 028.
 
 Se registra automáticamente:
 
