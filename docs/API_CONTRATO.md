@@ -204,8 +204,15 @@ Errores: 401; 404 (`Project not found`, `Version not found`); 422 si la etiqueta
 | `page` | entero ≥ 1 | `1` |
 | `page_size` | entero 1–100 | `50` |
 | `entity_type` | texto ≤ 40 | — (todas) |
+| `origin` | `user`, `ai` o `system` | — (todos) |
+| `source_module` | uno de los 18 módulos de H4 en `docs/DECISIONS.md` | — (todos) |
+| `user_id` | entero ≥ 1 | — (todos) |
+| `from` | fecha y hora ISO 8601, incluida; sin desfase se toma como UTC | — |
+| `to` | fecha y hora ISO 8601, excluida; sin desfase se toma como UTC | — |
 
-Respuesta 200, la más reciente primero:
+422 si un valor no es válido, si `source_module` no es un módulo conocido, si una fecha queda fuera de rango al pasarla a UTC (`Date out of range`) o si `from` no es anterior a `to`.
+
+Respuesta 200, la más reciente primero (por `created_at` y, a igual instante, por `id`):
 
 ```json
 {

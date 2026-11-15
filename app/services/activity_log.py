@@ -5,14 +5,16 @@ from typing import Any, Literal
 
 from sqlalchemy.orm import Session
 
+from app.logs import logger
 from app.models import ActivityEntry, User
 from app.repositories.activity_repository import ActivityRepository
 
 Origin = Literal["user", "ai", "system"]
 
 MODULE_HEADER = "X-Arquila-Module"
-# The modules of a project as the frontend names them. A header with any other value is
-# ignored, so the column only ever holds one of these.
+# The modules of a project as the frontend names them (contract: H4 in docs/DECISIONS.md, the
+# same list as SOURCE_MODULES in FRONTEND-ARQUILA/src/types/activity.ts). A header with
+# any other value is ignored, so the column only ever holds one of these.
 SOURCE_MODULES = frozenset(
     {
         "home",
@@ -43,7 +45,15 @@ current_module: ContextVar[str | None] = ContextVar("current_module", default=No
 def module_from_header(value: str | None) -> str | None:
     module = (value or "").strip().lower()
 
-    return module if module in SOURCE_MODULES else None
+    if module in SOURCE_MODULES:
+        return module
+
+    if module:
+        # A name the frontend sends but the backend does not know: the two lists drifted apart.
+        # Only its length is logged, never the value, which the client controls.
+        logger.warning("unknown_source_module", extra={"length": len(module)})
+
+    return None
 
 
 def json_safe(value: Any) -> Any:

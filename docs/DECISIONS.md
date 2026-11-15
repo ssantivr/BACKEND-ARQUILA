@@ -34,6 +34,12 @@ Server-side, same transaction as the change, database clock in UTC (`timestamptz
 
 Spanish, `Intl.DateTimeFormat('es-CO')`, absolute and relative time, `<time datetime>`, UTC tooltip, grouped by day, field names through `labels.ts`, "Última modificación" on project and plan cards and headers, time shown in success toasts. Test with a fixed timezone.
 
+### H4 · Source modules
+
+The `X-Arquila-Module` header names the module a change was made from; it is stored in `activity_log.source_module`. This list is the contract between the two repos: `SOURCE_MODULES` in `app/services/activity_log.py` must hold exactly these 18 names, and so must `SOURCE_MODULES` in `FRONTEND-ARQUILA/src/types/activity.ts`. A test in each repo reads this line and fails if the code drifts from it. The backend stores NULL for any other name and logs `unknown_source_module` with its length only.
+
+Modules: `home`, `projects`, `settings`, `summary`, `viewer`, `terrain`, `plans`, `elevations`, `lighting`, `analysis`, `files`, `versions`, `materials`, `compare`, `tasks`, `render`, `history`, `assistant`.
+
 ### D-TZ · timestamptz conversion (row R5b; status in the open decisions list)
 
 Convert `activity_log.created_at` to `timestamptz` with `USING created_at AT TIME ZONE 'UTC'` only after a read-only check on the local database confirms that the stored values are UTC. The check: `SHOW TimeZone`, the per-database and per-role settings in `pg_db_role_setting`, and recent rows compared with known event times; values come from the `CURRENT_TIMESTAMP` default in the session time zone, and the backend sets no time zone on the connection. Run the check separately on every database the migration will touch; if one is not UTC, stop and ask the owner. New migration (next free number, idempotent) with a down script in `rollback/NNN_down.sql` (`arquila-migration` skill); the ALTER runs only when `information_schema.columns.data_type` is `timestamp without time zone`, and the down script guards the reverse the same way, because running the conversion twice would shift every row. `pg_dump` outside the repos first. The type change rebuilds the `activity_log` indexes. In the same change set, `ActivityEntry.created_at` in `app/models.py` becomes `DateTime(timezone=True)`, with a test that the API emits an offset. Agents run it on local databases only; applying it to production is the owner's step, with the owner's explicit OK and a verified backup first.
