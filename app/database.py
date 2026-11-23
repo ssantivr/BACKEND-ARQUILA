@@ -29,7 +29,8 @@ def get_engine() -> Engine:
     if not configured:
         raise RuntimeError("DATABASE_URL environment variable is not set")
 
-    return create_engine(database_url(configured), pool_pre_ping=True)
+    # hide_parameters: the values of a failed query would end up in the log.
+    return create_engine(database_url(configured), pool_pre_ping=True, hide_parameters=True)
 
 
 def get_session() -> Iterator[Session]:
