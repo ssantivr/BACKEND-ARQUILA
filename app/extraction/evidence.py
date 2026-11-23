@@ -1,0 +1,86 @@
+"""Whether the quote a provider gives really holds the value it proposes.
+
+The quote also comes from the model, so this does not prove that the document says it: it only
+keeps estimates and guesses from being applied without review (D-AI-3).
+"""
+
+import re
+
+PAGE_REFERENCE = re.compile(r"\b(?:p[aá]g(?:ina|\.)?|page|p\.)\s*\d+\b", re.IGNORECASE)
+COORDINATES = re.compile(r"-?\d{1,3}[.,]\d{3,}\s*[,;/ ]\s*-?\d{1,3}[.,]\d{3,}")
+NUMBER = re.compile(r"-?\d+(?:(?:[.,]|[ '’´`‘](?=\d{3}(?!\d)))\d+)*")
+BEFORE_A_NUMBER = re.compile(r"(?:[\w.,'’-]|\d\s{1,3}|-\s{1,3})\Z")
+MAX_QUOTE = 500
+NOT_A_READING = re.compile(
+    r"\b(?:not stated|estimated|estimate|guess|assumed|inferred"
+    r"|no indica|estimad[oa]|supuest[oa])\b",
+    re.IGNORECASE,
+)
+
+LENGTH_UNIT = re.compile(
+    r"\s*(?:metros?|met(?:er|re)s?|m)\b(?!\s*(?:\^|²|2\b|cuadrad|square))", re.IGNORECASE
+)
+UNITS = {
+    "area_m2": re.compile(r"\s*(?:m2\b|m²|metros cuadrados|square met)", re.IGNORECASE),
+    "width_m": LENGTH_UNIT,
+    "length_m": LENGTH_UNIT,
+    "slope_percent": re.compile(r"\s*(?:%|por ciento|percent)", re.IGNORECASE),
+}
+
+
+def holds_coordinates(text: str) -> bool:
+    return COORDINATES.search(text) is not None
+
+
+def _readings(token: str) -> set[float]:
+    """1.250,5 and 1 250,5 are the same number. 2.500 can be two numbers: it waits for review."""
+    # Digits split by a space or an apostrophe can be one number or two: it waits for review.
+    if re.search(r"[ '’´`‘]", token):
+        return set()
+
+    if re.fullmatch(r"-?[1-9]\d{0,2}[.,]\d{3}", token):
+        return set()
+
+    if "." in token and "," in token:
+        decimal = "." if token.rfind(".") > token.rfind(",") else ","
+        thousands = "," if decimal == "." else "."
+        candidates = [token.replace(thousands, "").replace(decimal, ".")]
+    elif token.count(".") + token.count(",") > 1:
+        candidates = [token.replace(".", "").replace(",", "")]
+    else:
+        candidates = [token.replace(",", ".")]
+
+    found = set()
+
+    for candidate in candidates:
+        try:
+            found.add(round(float(candidate), 2))
+        except (ValueError, OverflowError):
+            continue
+
+    return found
+
+
+def is_supported(name: str, value: str | float, source: str) -> bool:
+    if len(source) > MAX_QUOTE:
+        return False
+
+    source = re.sub("[\u2212\u2012\u2013\u2014\u2015]", "-", source)
+    source = re.sub("[\u00a0\u2007\u2009\u202f]", " ", source)
+
+    if not PAGE_REFERENCE.search(source) or NOT_A_READING.search(source):
+        return False
+
+    quote = PAGE_REFERENCE.sub(" | ", source)
+
+    if isinstance(value, str):
+        return " ".join(value.casefold().split()) in " ".join(quote.casefold().split())
+
+    unit = UNITS.get(name)
+
+    return unit is not None and any(
+        value in _readings(match.group())
+        and unit.match(quote, match.end())
+        and not BEFORE_A_NUMBER.search(quote[max(0, match.start() - 6) : match.start()])
+        for match in NUMBER.finditer(quote)
+    )
