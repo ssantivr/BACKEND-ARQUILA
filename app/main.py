@@ -17,6 +17,7 @@ from app.api import (
     components,
     conversations,
     elevations,
+    extractions,
     files,
     materials,
     plans,
@@ -125,6 +126,7 @@ async def log_requests(request: Request, call_next):
 
 app.include_router(auth.router)
 app.include_router(files.router)
+app.include_router(extractions.router)
 app.include_router(projects.router)
 app.include_router(templates.router)
 app.include_router(terrains.router)
