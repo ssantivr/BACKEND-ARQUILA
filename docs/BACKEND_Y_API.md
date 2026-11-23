@@ -242,7 +242,7 @@ El enlace de recuperación lleva su identificador en la dirección. La aplicaci�
 
 ### Tamaño de los datos
 
-Todos los textos que recibe la API tienen una longitud máxima, las listas de vértices un número máximo de puntos y los archivos un tamaño máximo. La descripción de un proyecto admite hasta 2000 caracteres.
+Todos los textos que recibe la API tienen una longitud máxima, las listas de vértices un número máximo de puntos y los archivos un tamaño máximo. Los textos libres admiten hasta 200 caracteres (las excepciones están en `docs/TEXT_LIMITS.md`).
 
 ### Dependencias
 

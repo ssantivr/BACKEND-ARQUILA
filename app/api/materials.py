@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.database import get_session
+from app.limits import MAX_TEXT_LENGTH
 from app.models import User
 from app.schemas import MaterialCreate, MaterialRead, MaterialUpdate
 from app.services.material_service import MaterialService
@@ -33,7 +34,7 @@ def create_material(
 @router.get("/projects/{project_id}/materials", response_model=list[MaterialRead])
 def list_materials(
     project_id: int,
-    category: str | None = None,
+    category: str | None = Query(default=None, max_length=MAX_TEXT_LENGTH),
     service: MaterialService = Depends(get_service),
 ):
     return service.list(project_id, category=category)
