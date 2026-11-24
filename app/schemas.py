@@ -16,10 +16,24 @@ RoofKind = Literal["gable", "flat"]
 SurfaceMaterial = Literal["concrete", "brick", "plaster", "glass", "steel", "wood", "stone"]
 
 
+def strong_password(password: str) -> str:
+    """Letters and digits: the length alone lets "aaaaaaaa" through (R03)."""
+    if not any(char.isalpha() for char in password) or not any(char.isdigit() for char in password):
+        raise ValueError("The password needs letters and numbers")
+
+    if len(set(password)) < 4:
+        raise ValueError("The password repeats too few characters")
+
+    return password
+
+
+NewPassword = Annotated[str, Field(min_length=8, max_length=128), AfterValidator(strong_password)]
+
+
 class RegisterRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     email: str = Field(max_length=MAX_EMAIL_LENGTH, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-    password: str = Field(min_length=8, max_length=128)
+    password: NewPassword
 
 
 class PasswordResetRequest(BaseModel):
@@ -28,7 +42,7 @@ class PasswordResetRequest(BaseModel):
 
 class PasswordResetConfirm(BaseModel):
     token: str = Field(min_length=10, max_length=200)
-    password: str = Field(min_length=8, max_length=128)
+    password: NewPassword
 
 
 class LoginRequest(BaseModel):
@@ -459,5 +473,6 @@ class SummaryRead(BaseModel):
     active_projects: int
     archived_projects: int
     terrains: int
+    plans: int
     total_area_m2: float
     materials_total_cost: float

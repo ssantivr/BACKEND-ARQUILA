@@ -3,7 +3,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Material, Project, Terrain
+from app.models import Material, Plan, Project, Terrain
 
 
 class SummaryRepository:
@@ -25,6 +25,13 @@ class SummaryRepository:
             .where(Project.owner_id == owner_id)
         ).one()
         return count, area
+
+    def plans_count(self, owner_id: int) -> int:
+        return self.session.scalar(
+            select(func.count(Plan.id))
+            .join(Project, Plan.project_id == Project.id)
+            .where(Project.owner_id == owner_id)
+        )
 
     def materials_total_cost(self, owner_id: int) -> Decimal:
         return self.session.scalar(
