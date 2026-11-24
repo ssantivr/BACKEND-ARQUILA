@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 from pydantic import (
     AfterValidator,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     StrictBool,
@@ -13,8 +14,16 @@ from pydantic import (
 
 from app.extraction.proposal import ProposedField
 from app.limits import MAX_TEXT_LENGTH
+from app.schemas import ComponentKind
 
 ExtractionStatus = Literal["review", "applied", "undone", "failed"]
+BuildOrigin = Literal["description", "document"]
+
+MAX_LEVELS = 10
+MAX_ROOMS = 50
+MAX_COMPONENTS = 100
+# Read once and never stored, with the limit of every text a user types (R07).
+MAX_DESCRIPTION_LENGTH = MAX_TEXT_LENGTH
 
 
 def without_nul(text: str) -> str:
@@ -34,6 +43,14 @@ def two_decimals(value: float) -> float:
         raise ValueError("the value is too small")
 
     return rounded
+
+
+def rounded_first(value: object) -> object:
+    """The columns keep two decimals: the bounds are checked on the value that is stored."""
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return round(value, 2)
+
+    return value
 
 
 class ExtractionAvailability(BaseModel):
@@ -113,6 +130,87 @@ class ExtractionRead(BaseModel):
     @field_serializer("created_at")
     def in_utc(self, value: datetime) -> str:
         # Stored in UTC without an offset: a browser would read it as local time (R18).
+        aware = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+        return aware.isoformat().replace("+00:00", "Z")
+
+
+Name = Annotated[Text, Field(max_length=160)]
+Measure = Annotated[float, BeforeValidator(rounded_first), Field(gt=0, lt=1000)]
+Position = Annotated[float, BeforeValidator(rounded_first), Field(ge=-100_000, le=100_000)]
+Fields = dict[str, ProposedField]
+
+
+class BuildCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    description: Annotated[Text, Field(max_length=MAX_DESCRIPTION_LENGTH)] | None = None
+    file_id: int | None = None
+    consent: StrictBool = False
+
+    @model_validator(mode="after")
+    def has_one_source(self) -> "BuildCreate":
+        if (self.description is None) == (self.file_id is None):
+            raise ValueError("give either a description or a document")
+
+        return self
+
+
+class BuildRoom(Reviewed):
+    """Positions are always typed by the user: the AI never proposes them."""
+
+    name: Name
+    x_m: Position
+    y_m: Position
+    width_m: Measure
+    depth_m: Measure
+    height_m: Measure
+
+
+class BuildComponent(BuildRoom):
+    kind: ComponentKind
+
+
+class BuildLevel(Reviewed):
+    title: Name
+    level: Annotated[Text, Field(max_length=60)] | None = None
+    scale: Annotated[Text, Field(max_length=20)] | None = None
+    rooms: list[BuildRoom] = Field(default_factory=list, max_length=MAX_ROOMS)
+    components: list[BuildComponent] = Field(default_factory=list, max_length=MAX_COMPONENTS)
+
+
+class BuildApply(Reviewed):
+    """What the user confirmed after reviewing and completing the proposal."""
+
+    levels: list[BuildLevel] = Field(min_length=1, max_length=MAX_LEVELS)
+
+
+class ProposedLevel(BaseModel):
+    fields: Fields = Field(default_factory=dict)
+    rooms: list[Fields] = Field(default_factory=list)
+    components: list[Fields] = Field(default_factory=list)
+
+
+class BuildProposal(BaseModel):
+    origin: BuildOrigin
+    levels: list[ProposedLevel] = Field(default_factory=list)
+    # More levels, rooms or components than the limits were proposed: the rest was left out.
+    truncated: bool = False
+
+
+class BuildRead(BaseModel):
+    id: int
+    project_id: int
+    file_id: int | None
+    status: ExtractionStatus
+    origin: BuildOrigin
+    levels: list[ProposedLevel]
+    truncated: bool
+    plan_ids: list[int]
+    created_at: datetime
+
+    @field_serializer("created_at")
+    def in_utc(self, value: datetime) -> str:
         aware = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
         return aware.isoformat().replace("+00:00", "Z")
