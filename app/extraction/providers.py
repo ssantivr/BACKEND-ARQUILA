@@ -42,6 +42,14 @@ class Extractor(Protocol):
 
     def extract(self, data: bytes, mime_type: str) -> str: ...
 
+    def read(
+        self,
+        instructions: str,
+        text: str,
+        document: tuple[bytes, str] | None,
+        max_tokens: int = MAX_OUTPUT_TOKENS,
+    ) -> str: ...
+
 
 def _post(client: httpx.Client, url: str, body: dict, headers: dict | None = None) -> dict:
     try:
@@ -71,19 +79,30 @@ class GeminiExtractor:
         self._client = client
 
     def extract(self, data: bytes, mime_type: str) -> str:
-        document = {"mime_type": mime_type, "data": base64.b64encode(data).decode("ascii")}
+        return self.read(INSTRUCTIONS, "Read this document.", (data, mime_type))
+
+    def read(
+        self,
+        instructions: str,
+        text: str,
+        document: tuple[bytes, str] | None,
+        max_tokens: int = MAX_OUTPUT_TOKENS,
+    ) -> str:
+        parts: list[dict] = []
+
+        if document is not None:
+            data, mime_type = document
+            encoded = base64.b64encode(data).decode("ascii")
+            parts.append({"inline_data": {"mime_type": mime_type, "data": encoded}})
+
+        parts.append({"text": text})
         body = {
-            "systemInstruction": {"parts": [{"text": INSTRUCTIONS}]},
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [{"inline_data": document}, {"text": "Read this document."}],
-                }
-            ],
+            "systemInstruction": {"parts": [{"text": instructions}]},
+            "contents": [{"role": "user", "parts": parts}],
             "generationConfig": {
                 "responseMimeType": "application/json",
                 "temperature": 0,
-                "maxOutputTokens": MAX_OUTPUT_TOKENS,
+                "maxOutputTokens": max_tokens,
             },
         }
         url = f"{GEMINI_URL}/{quote(self._model, safe='')}:generateContent"
@@ -120,19 +139,26 @@ class OllamaExtractor:
         self.external = not stays_on_this_machine(self._url, model)
 
     def extract(self, data: bytes, mime_type: str) -> str:
+        return self.read(INSTRUCTIONS, "Read this document.", (data, mime_type))
+
+    def read(
+        self,
+        instructions: str,
+        text: str,
+        document: tuple[bytes, str] | None,
+        max_tokens: int = MAX_OUTPUT_TOKENS,
+    ) -> str:
+        message: dict = {"role": "user", "content": text}
+
+        if document is not None:
+            message["images"] = [base64.b64encode(document[0]).decode("ascii")]
+
         body = {
             "model": self._model,
             "stream": False,
             "format": "json",
-            "options": {"temperature": 0, "num_predict": MAX_OUTPUT_TOKENS},
-            "messages": [
-                {"role": "system", "content": INSTRUCTIONS},
-                {
-                    "role": "user",
-                    "content": "Read this document.",
-                    "images": [base64.b64encode(data).decode("ascii")],
-                },
-            ],
+            "options": {"temperature": 0, "num_predict": max_tokens},
+            "messages": [{"role": "system", "content": instructions}, message],
         }
 
         # On this machine no proxy is used: it would take the document out without consent.

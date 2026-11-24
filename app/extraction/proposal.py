@@ -43,7 +43,7 @@ class Reading:
     sure: bool
 
 
-def _is_storable(text: str) -> bool:
+def is_storable(text: str) -> bool:
     # PostgreSQL refuses NUL and lone surrogates.
     return not any(
         unicodedata.category(char) in ("Cc", "Cs") and char not in "\n\r\t" for char in text
@@ -61,11 +61,11 @@ def _is_valid(schema: type[BaseModel], name: str, value: str | float) -> bool:
     return True
 
 
-def _clean_value(schema: type[BaseModel], name: str, value: Any) -> str | float | None:
+def clean_value(schema: type[BaseModel], name: str, value: Any) -> str | float | None:
     if isinstance(value, str):
         value = value.strip()
 
-        if not value or not _is_storable(value):
+        if not value or not is_storable(value):
             return None
 
         if name in ("description", "location") and holds_coordinates(value):
@@ -97,10 +97,10 @@ def _read_field(
     source = answer.get("source")
 
     # A value without the place it was read from could be invented: it stays empty.
-    if not isinstance(source, str) or not source.strip() or not _is_storable(source):
+    if not isinstance(source, str) or not source.strip() or not is_storable(source):
         return None, False
 
-    value = _clean_value(schema, name, answer.get("value"))
+    value = clean_value(schema, name, answer.get("value"))
 
     if value is None:
         return None, False

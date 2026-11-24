@@ -24,6 +24,8 @@ UNITS = {
     "area_m2": re.compile(r"\s*(?:m2\b|m²|metros cuadrados|square met)", re.IGNORECASE),
     "width_m": LENGTH_UNIT,
     "length_m": LENGTH_UNIT,
+    "depth_m": LENGTH_UNIT,
+    "height_m": LENGTH_UNIT,
     "slope_percent": re.compile(r"\s*(?:%|por ciento|percent)", re.IGNORECASE),
 }
 
@@ -61,17 +63,30 @@ def _readings(token: str) -> set[float]:
     return found
 
 
-def is_supported(name: str, value: str | float, source: str) -> bool:
-    if len(source) > MAX_QUOTE:
+def _normalised(text: str) -> str:
+    text = re.sub("[\u2212\u2012\u2013\u2014\u2015]", "-", text)
+
+    return re.sub("[\u00a0\u2007\u2009\u202f]", " ", text)
+
+
+def is_within(quote: str, text: str) -> bool:
+    """Whether the quote is really part of the text the user wrote."""
+    return " ".join(_normalised(quote).casefold().split()) in " ".join(
+        _normalised(text).casefold().split()
+    )
+
+
+def is_quoted(name: str, value: str | float, quote: str) -> bool:
+    """Whether the quote holds the value, and a measure with its unit."""
+    if len(quote) > MAX_QUOTE:
         return False
 
-    source = re.sub("[\u2212\u2012\u2013\u2014\u2015]", "-", source)
-    source = re.sub("[\u00a0\u2007\u2009\u202f]", " ", source)
+    quote = _normalised(quote)
 
-    if not PAGE_REFERENCE.search(source) or NOT_A_READING.search(source):
+    if NOT_A_READING.search(quote):
         return False
 
-    quote = PAGE_REFERENCE.sub(" | ", source)
+    quote = PAGE_REFERENCE.sub(" | ", quote)
 
     if isinstance(value, str):
         return " ".join(value.casefold().split()) in " ".join(quote.casefold().split())
@@ -84,3 +99,29 @@ def is_supported(name: str, value: str | float, source: str) -> bool:
         and not BEFORE_A_NUMBER.search(quote[max(0, match.start() - 6) : match.start()])
         for match in NUMBER.finditer(quote)
     )
+
+
+# The words that name each kind of structural component, in the languages of the documents.
+KIND_WORDS = {
+    "column": ("columna", "pilar", "column"),
+    "beam": ("viga", "beam"),
+    "wall": ("muro", "pared", "wall"),
+}
+
+
+def names_kind(kind: str, quote: str) -> bool:
+    """Whether the quote really names that kind of component."""
+    if len(quote) > MAX_QUOTE or NOT_A_READING.search(_normalised(quote)):
+        return False
+
+    text = _normalised(quote).casefold()
+
+    return any(re.search(rf"\b{re.escape(word)}", text) for word in KIND_WORDS.get(kind, ()))
+
+
+def is_supported(name: str, value: str | float, source: str) -> bool:
+    """A quote of a document has to say on which page it is."""
+    if len(source) > MAX_QUOTE or not PAGE_REFERENCE.search(_normalised(source)):
+        return False
+
+    return is_quoted(name, value, source)
