@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.database import get_session
+from app.limits import MAX_TEXT_LENGTH
 from app.models import User
 from app.schemas import RecommendationCreate, RecommendationRead, RecommendationSource
 from app.services.recommendation_service import RecommendationService
@@ -36,7 +37,7 @@ def create_recommendation(
 )
 def list_recommendations(
     project_id: int,
-    category: str | None = None,
+    category: str | None = Query(default=None, max_length=MAX_TEXT_LENGTH),
     source: RecommendationSource | None = None,
     service: RecommendationService = Depends(get_service),
 ):

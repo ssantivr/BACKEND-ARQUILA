@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app import storage
 from app.errors import NotFoundError
+from app.limits import MAX_TEXT_LENGTH
 from app.models import File, FileContent, User
 from app.repositories.file_repository import FileRepository
 from app.services.base import ProjectScopedService
@@ -14,7 +15,13 @@ from app.services.base import ProjectScopedService
 
 def clean_filename(filename: str | None) -> str:
     name = PureWindowsPath(PurePosixPath(filename or "").name).name.strip()
-    return name[:255] or "file"
+
+    if len(name) > MAX_TEXT_LENGTH:
+        # The extension survives the cut: it says what the file is.
+        suffix = PurePosixPath(name).suffix[:10]
+        name = name[: MAX_TEXT_LENGTH - len(suffix)] + suffix
+
+    return name or "file"
 
 
 class FileService(ProjectScopedService):

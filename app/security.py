@@ -12,7 +12,17 @@ SCRYPT_R = 8
 SCRYPT_P = 1
 KEY_BYTES = 32
 
-_hasher = PasswordHasher()
+# Argon2id above the RFC 9106 low-memory profile (3 passes). A password hashed with less is
+# hashed again the next time its owner signs in.
+ARGON2_TIME_COST = 4
+ARGON2_MEMORY_KIB = 64 * 1024
+ARGON2_PARALLELISM = 4
+
+_hasher = PasswordHasher(
+    time_cost=ARGON2_TIME_COST,
+    memory_cost=ARGON2_MEMORY_KIB,
+    parallelism=ARGON2_PARALLELISM,
+)
 
 
 def _derive_legacy(password: str, salt: bytes) -> bytes:
