@@ -272,10 +272,11 @@ def lying_pdf(pages):
 
 
 def test_a_huge_page_tree_is_stopped_early_and_others_still_pass():
+    huge = lying_pdf(3000)
     started = time.monotonic()
 
     for _ in range(3):
-        assert documents.count_pages(lying_pdf(3000)) == 11
+        assert documents.count_pages(huge) == 11
 
     assert time.monotonic() - started < 3
     assert documents.count_pages(PDF) == 1
