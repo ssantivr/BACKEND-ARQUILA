@@ -3,7 +3,7 @@ import os
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -36,6 +36,12 @@ DEFAULT_GLOBAL_PER_DAY = 100
 TERRAIN_FIELDS = ("name", "area_m2", "width_m", "length_m", "slope_percent", "soil_type")
 PLAN_FIELDS = ("title", "level", "scale")
 CHANGED_AFTERWARDS = "It changed after the document was applied"
+# A building proposal (R13) shares the table, the quota and the consent: no migration is needed.
+BUILD_MARK = '{"build"'
+
+
+def is_build(extraction: AIExtraction) -> bool:
+    return extraction.proposal is not None and extraction.proposal.startswith(BUILD_MARK)
 
 
 def global_daily_limit() -> int:
@@ -52,7 +58,7 @@ def _comparable(value: Any) -> Any:
     return round(float(value), 2)
 
 
-def _state(item: Any, fields: tuple[str, ...]) -> dict[str, Any]:
+def comparable_state(item: Any, fields: tuple[str, ...]) -> dict[str, Any]:
     return {name: _comparable(getattr(item, name)) for name in fields}
 
 
@@ -89,7 +95,13 @@ class ExtractionService(ProjectScopedService):
         return list(
             self.session.scalars(
                 select(AIExtraction)
-                .where(AIExtraction.project_id == project_id)
+                .where(
+                    AIExtraction.project_id == project_id,
+                    or_(
+                        AIExtraction.proposal.is_(None),
+                        ~AIExtraction.proposal.startswith(BUILD_MARK, autoescape=True),
+                    ),
+                )
                 .order_by(AIExtraction.id.desc())
                 .limit(20)
             )
@@ -174,7 +186,7 @@ class ExtractionService(ProjectScopedService):
             if item is None or project is None or item.project_id != project.id:
                 raise ConflictError(CHANGED_AFTERWARDS)
 
-            if _state(item, fields) != snapshot[key]["values"]:
+            if comparable_state(item, fields) != snapshot[key]["values"]:
                 raise ConflictError(CHANGED_AFTERWARDS)
 
             # Deleting these would take the user's later work with them.
@@ -278,7 +290,10 @@ class ExtractionService(ProjectScopedService):
             self.session.add(terrain)
             self.session.flush()
             self.session.refresh(terrain)
-            snapshot["terrain"] = {"id": terrain.id, "values": _state(terrain, TERRAIN_FIELDS)}
+            snapshot["terrain"] = {
+                "id": terrain.id,
+                "values": comparable_state(terrain, TERRAIN_FIELDS),
+            }
 
         if data.plan is not None:
             plan = Plan(
@@ -288,7 +303,7 @@ class ExtractionService(ProjectScopedService):
             )
             self.session.add(plan)
             self.session.flush()
-            snapshot["plan"] = {"id": plan.id, "values": _state(plan, PLAN_FIELDS)}
+            snapshot["plan"] = {"id": plan.id, "values": comparable_state(plan, PLAN_FIELDS)}
 
         extraction.snapshot = json.dumps(snapshot)
         extraction.status = "applied"
@@ -309,7 +324,7 @@ class ExtractionService(ProjectScopedService):
 
         return earlier is not None
 
-    def _reserve(self, project_id: int, file_id: int) -> int:
+    def _reserve(self, project_id: int, file_id: int | None, proposal: str | None = None) -> int:
         # The user row is locked so that two requests cannot both take the last reading.
         self.session.scalar(
             select(User.id).where(User.id == self.user.id).with_for_update(key_share=True)
@@ -328,6 +343,7 @@ class ExtractionService(ProjectScopedService):
             file_id=file_id,
             user_id=self.user.id,
             status="failed",
+            proposal=proposal,
             created_at=utc_now(),
         )
         self.session.add(extraction)
@@ -342,7 +358,7 @@ class ExtractionService(ProjectScopedService):
         # populate_existing: without it the lock returns the values loaded before waiting for it.
         return self.session.get(model, item_id, with_for_update=True, populate_existing=True)
 
-    def _get(self, extraction_id: int, lock: bool = False) -> AIExtraction:
+    def _get(self, extraction_id: int, lock: bool = False, build: bool = False) -> AIExtraction:
         extraction = self.session.get(
             AIExtraction, extraction_id, with_for_update=lock, populate_existing=True
         )
@@ -350,6 +366,7 @@ class ExtractionService(ProjectScopedService):
         if (
             extraction is None
             or extraction.project_id is None
+            or is_build(extraction) != build
             or not self._owns(extraction.project_id)
         ):
             raise NotFoundError("Extraction not found")
