@@ -9,8 +9,10 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     LargeBinary,
     Numeric,
+    SmallInteger,
     String,
     Table,
     Text,
@@ -111,6 +113,10 @@ class Project(Base):
         UniqueConstraint("owner_id", "name"),
         CheckConstraint("status IN ('draft', 'active', 'archived')"),
         CheckConstraint("roof IN ('gable', 'flat')"),
+        CheckConstraint("latitude BETWEEN -90 AND 90"),
+        CheckConstraint("longitude BETWEEN -180 AND 180"),
+        CheckConstraint("location_zoom BETWEEN 1 AND 19"),
+        CheckConstraint("(latitude IS NULL) = (longitude IS NULL)"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -118,6 +124,9 @@ class Project(Base):
     name: Mapped[str] = mapped_column(String(160))
     description: Mapped[str | None] = mapped_column(Text)
     location: Mapped[str | None] = mapped_column(String(255))
+    latitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
+    longitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
+    location_zoom: Mapped[int | None] = mapped_column(SmallInteger)
     status: Mapped[str] = mapped_column(String(20), server_default="draft")
     roof: Mapped[str] = mapped_column(String(10), server_default="gable")
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
@@ -135,6 +144,31 @@ class Project(Base):
     spatial_elements: Mapped[list["SpatialElement"]] = relationship(cascade="all, delete-orphan")
     walkthrough_steps: Mapped[list["WalkthroughStep"]] = relationship(cascade="all, delete-orphan")
     renovation_logs: Mapped[list["RenovationLog"]] = relationship(cascade="all, delete-orphan")
+    # Kept without its project when that is deleted: the daily quota counts these rows.
+    extractions: Mapped[list["AIExtraction"]] = relationship()
+
+
+class AIExtraction(Base):
+    """What the AI read in a document and what it changed (migration 017)."""
+
+    __tablename__ = "ai_extractions"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('review', 'applied', 'undone', 'failed')",
+            name="ai_extractions_status_known",
+        ),
+        Index("idx_ai_extractions_project_id", "project_id"),
+        Index("idx_ai_extractions_user_id_created_at", "user_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"))
+    file_id: Mapped[int | None] = mapped_column(ForeignKey("files.id", ondelete="SET NULL"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    status: Mapped[str] = mapped_column(String(10), server_default="review")
+    proposal: Mapped[str | None] = mapped_column(Text)
+    snapshot: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
 class Terrain(Base):

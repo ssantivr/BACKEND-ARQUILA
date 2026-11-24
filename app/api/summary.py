@@ -25,6 +25,7 @@ def get_summary(
         active_projects=by_status.get("active", 0),
         archived_projects=by_status.get("archived", 0),
         terrains=terrains,
+        plans=repository.plans_count(user.id),
         total_area_m2=float(total_area),
         materials_total_cost=float(repository.materials_total_cost(user.id)),
     )

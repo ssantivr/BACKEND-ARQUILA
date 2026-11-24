@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.database import get_session
+from app.limits import MAX_TEXT_LENGTH
 from app.models import User
 from app.schemas import ProjectCreate, ProjectRead, ProjectStatus, ProjectUpdate
 from app.services.project_service import ProjectService
@@ -25,7 +26,7 @@ def create_project(data: ProjectCreate, service: ProjectService = Depends(get_se
 @router.get("", response_model=list[ProjectRead])
 def list_projects(
     status: ProjectStatus | None = None,
-    search: str | None = None,
+    search: str | None = Query(default=None, max_length=MAX_TEXT_LENGTH),
     service: ProjectService = Depends(get_service),
 ):
     return service.list(status=status, search=search)

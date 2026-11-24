@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Permission, Role, User
 
-PASSWORD = "correct-horse-battery"
+PASSWORD = "correct-horse-battery-7"
 
 
 def register(client, name="Ana", email="ana@example.com", password=PASSWORD):

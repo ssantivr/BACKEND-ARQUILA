@@ -1,7 +1,7 @@
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.models import Project
+from app.models import AIExtraction, Project
 
 
 class ProjectRepository:
@@ -43,5 +43,12 @@ class ProjectRepository:
         return project
 
     def delete(self, project: Project) -> None:
+        # The rows stay for the quota, without anything read from the documents. This waits for
+        # a reading that is being saved, and one that ends later finds no project to write to.
+        self.session.execute(
+            update(AIExtraction)
+            .where(AIExtraction.project_id == project.id)
+            .values(project_id=None, proposal=None, snapshot=None)
+        )
         self.session.delete(project)
         self.session.commit()

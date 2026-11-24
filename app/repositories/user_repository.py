@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.models import User
@@ -21,6 +21,23 @@ class UserRepository:
         self.session.add(user)
         self.session.commit()
         return user
+
+    def replace_hash(self, user: User, verified: str, new: str) -> bool:
+        """Only while the hash is still the verified one: a reset can happen meanwhile."""
+        changed = self.session.execute(
+            update(User)
+            .where(User.id == user.id, User.password_hash == verified)
+            .values(password_hash=new)
+            .execution_options(synchronize_session=False)
+        ).rowcount
+
+        if changed != 1:
+            self.session.rollback()
+            return False
+
+        self.session.commit()
+        self.session.refresh(user)
+        return True
 
     def add(self, user: User) -> User:
         self.session.add(user)

@@ -4,6 +4,8 @@ from typing import Annotated, Any, Literal, Self
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
+from app.limits import MAX_TEXT_LENGTH
+
 Layer = Literal["structure", "installations", "finishes"]
 WorkStatus = Literal["existing", "planned", "demolition"]
 PropertyType = Literal["house", "apartment_building", "commercial", "mixed_use"]
@@ -89,7 +91,7 @@ class PropertyCreate(BaseModel):
     project_id: int
     name: Name
     property_type: PropertyType = "house"
-    address: str | None = Field(default=None, max_length=255)
+    address: str | None = Field(default=None, max_length=MAX_TEXT_LENGTH)
     status: PropertyStatus = "planning"
     spatial_metadata: JsonConfig = Field(default_factory=dict)
 
@@ -97,7 +99,7 @@ class PropertyCreate(BaseModel):
 class PropertyUpdate(BaseModel):
     name: Name | None = None
     property_type: PropertyType | None = None
-    address: str | None = Field(default=None, max_length=255)
+    address: str | None = Field(default=None, max_length=MAX_TEXT_LENGTH)
     status: PropertyStatus | None = None
     spatial_metadata: JsonConfig | None = None
 
@@ -272,7 +274,7 @@ class WalkthroughStepCreate(BaseModel):
     room_id: int | None = None
     position: int | None = Field(default=None, ge=0, le=10_000)
     title: Name
-    description: str | None = Field(default=None, max_length=2000)
+    description: str | None = Field(default=None, max_length=MAX_TEXT_LENGTH)
     duration_ms: int = Field(default=5000, ge=1000, le=60_000)
     view_config: ViewConfig = Field(default_factory=dict)
 
@@ -281,7 +283,7 @@ class WalkthroughStepUpdate(BaseModel):
     room_id: int | None = None
     position: int | None = Field(default=None, ge=0, le=10_000)
     title: Name | None = None
-    description: str | None = Field(default=None, max_length=2000)
+    description: str | None = Field(default=None, max_length=MAX_TEXT_LENGTH)
     duration_ms: int | None = Field(default=None, ge=1000, le=60_000)
     view_config: ViewConfig | None = None
 
@@ -311,7 +313,7 @@ class RenovationLogCreate(BaseModel):
     spatial_element_id: int | None = None
     layer: Layer
     title: Name
-    description: str | None = Field(default=None, max_length=2000)
+    description: str | None = Field(default=None, max_length=MAX_TEXT_LENGTH)
     status: RenovationStatus = "planned"
     planned_start: date | None = None
     planned_end: date | None = None
@@ -329,7 +331,7 @@ class RenovationLogUpdate(BaseModel):
     spatial_element_id: int | None = None
     layer: Layer | None = None
     title: Name | None = None
-    description: str | None = Field(default=None, max_length=2000)
+    description: str | None = Field(default=None, max_length=MAX_TEXT_LENGTH)
     status: RenovationStatus | None = None
     planned_start: date | None = None
     planned_end: date | None = None

@@ -9,6 +9,7 @@ EMPTY = {
     "active_projects": 0,
     "archived_projects": 0,
     "terrains": 0,
+    "plans": 0,
     "total_area_m2": 0,
     "materials_total_cost": 0,
 }
@@ -56,6 +57,7 @@ def test_summary_adds_up_only_the_users_own_data(client):
         "active_projects": 1,
         "archived_projects": 1,
         "terrains": 2,
+        "plans": 0,
         "total_area_m2": 570.5,
         "materials_total_cost": 1385.0,
     }
