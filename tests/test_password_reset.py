@@ -8,7 +8,7 @@ from app.main import app
 from app.services import auth_service, login_limiter
 from tests.helpers import PASSWORD, register
 
-NEW_PASSWORD = "a-brand-new-password"
+NEW_PASSWORD = "a-brand-new-password-2"
 
 
 class FakeMailer:

@@ -1,7 +1,8 @@
 from sqlalchemy.orm import Session
 
 from app import storage
-from app.errors import ConflictError, NotFoundError
+from app.errors import ConflictError, InvalidDataError, NotFoundError
+from app.limits import MAX_TEXT_LENGTH
 from app.models import Project, User
 from app.repositories.project_repository import ProjectRepository
 from app.schemas import ProjectCreate, ProjectUpdate
@@ -40,6 +41,13 @@ class ProjectService:
         for required in ("name", "status"):
             if changes.get(required, "") is None:
                 del changes[required]
+
+        # An older text that is longer may be sent back as it was: only a new one has the limit.
+        for field in ("description", "location"):
+            value = changes.get(field)
+
+            if value and len(value) > MAX_TEXT_LENGTH and value != getattr(project, field):
+                raise InvalidDataError(f"The text exceeds {MAX_TEXT_LENGTH} characters")
 
         if "name" in changes and changes["name"] != project.name:
             self._ensure_name_is_free(project.owner_id, changes["name"])

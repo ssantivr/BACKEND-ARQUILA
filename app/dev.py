@@ -24,7 +24,7 @@ def main() -> None:
     uvicorn.run(
         "app.main:app",
         host=os.environ.get("API_HOST", "127.0.0.1"),
-        port=int(os.environ.get("API_PORT", "8000")),
+        port=int(os.environ.get("API_PORT", "8010")),
         access_log=False,
     )
 

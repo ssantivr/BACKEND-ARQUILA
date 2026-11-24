@@ -17,7 +17,7 @@ services:
     buildCommand: >-
       pip install -r requirements.txt &&
       git clone --depth 1 https://github.com/ssantivr/BASE-DE-DATOS-ARQUILA.git database
-    startCommand: python -m app.migrate --seed && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    startCommand: python -m app.migrate && uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
         fromDatabase:

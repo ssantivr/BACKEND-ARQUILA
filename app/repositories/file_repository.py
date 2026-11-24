@@ -1,7 +1,7 @@
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.models import Elevation, File, Plan
+from app.models import AIExtraction, Elevation, File, Plan
 
 
 class FileRepository:
@@ -26,6 +26,13 @@ class FileRepository:
         return file
 
     def delete(self, file: File) -> None:
+        # The readings first, in the order apply and undo lock them.
+        readings = update(AIExtraction).where(AIExtraction.file_id == file.id)
+        self.session.execute(
+            readings.where(AIExtraction.status == "review").values(status="failed")
+        )
+        self.session.execute(readings.values(file_id=None, proposal=None))
+
         for model in (Plan, Elevation):
             self.session.execute(update(model).where(model.file_id == file.id).values(file_id=None))
 

@@ -111,8 +111,14 @@ class AuthService:
         login_limiter.reset(email, self.users.session)
 
         if security.needs_rehash(user.password_hash):
-            user.password_hash = security.hash_password(data.password)
-            self.users.save(user)
+            if not self.users.replace_hash(user, stored, security.hash_password(data.password)):
+                self.users.session.refresh(user)
+
+                # Another sign-in may have done the same rehash. A reset is different: the
+                # password just typed is no longer valid.
+                if not security.verify_password(data.password, user.password_hash):
+                    raise AuthenticationError("Invalid email or password")
+
             logger.info("password_rehashed", extra={"user_id": user.id})
 
         return user

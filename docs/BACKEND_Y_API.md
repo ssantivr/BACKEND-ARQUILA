@@ -102,6 +102,29 @@ Las rutas nuevas viven bajo `/api/v1` y conviven con las anteriores, que no camb
 - Con `FILE_STORAGE=database` el contenido se guarda en la tabla `file_contents` de PostgreSQL en lugar del disco. Existe para los alojamientos que no conservan el disco entre peticiones, como Vercel. Las comprobaciones de tipo y de tamaño son las mismas, y el contenido se borra con su archivo. Los archivos que ya estaban en disco se siguen sirviendo desde ahí. Guardar binarios en la base es aceptable para archivos pequeños y pocos usuarios; con más volumen convendría un almacenamiento de objetos.
 - El botón «Ver», en la pestaña Archivos y junto al archivo adjunto de un plano o una elevación, abre el archivo dentro de la aplicación en una ventana superpuesta (`FRONTEND-ARQUILA/src/components/FileViewer.tsx` y `Modal.tsx`): las imágenes se muestran ajustadas a la ventana y los PDF con el lector del navegador. La ventana usa el elemento `<dialog>` del navegador, así que se cierra con Escape, con el botón «Cerrar» o pulsando fuera, y tiene un enlace para abrir el archivo en otra pestaña.
 
+## Propuesta de construcción
+
+`POST /projects/{id}/builds` acepta `description` (hasta 2000 caracteres), `file_id` y `consent`: se puede enviar la descripción, el documento o ambos. Si se envían ambos y hay proveedor, la descripción es contexto y no evidencia documental; las citas de un documento siguen necesitando referencia de página. Si no hay proveedor, el backend no abre ni procesa el archivo y genera una propuesta solo a partir de `description`; un documento sin descripción sigue necesitando proveedor.
+
+Las propuestas se revisan antes de aplicarse. El motor determinista conserva los valores con
+evidencia y completa las medidas o posiciones ausentes en una cuadrícula de 0,15 m, empaquetando
+los cuartos sin superposición y ubicando los componentes en una banda alineada fuera de ellos.
+Usa las dimensiones del terreno existente o las explícitas en la descripción; si no existen,
+propone un lote inicial editable de 10 × 20 m. Las recomendaciones técnicas son orientativas.
+Estas sugerencias geométricas no sustituyen un plano arquitectónico validado ni un estudio
+profesional.
+
+`BuildRead` devuelve los valores propuestos y los valores existentes del proyecto y terreno. La
+persona puede revisarlos y editar proyecto, terreno y distribución, además de leer las
+recomendaciones. `BuildApply` confirma proyecto,
+terreno, planos, cuartos, componentes y recomendaciones técnicas en una sola transacción; el
+snapshot de `AIExtraction` permite deshacer el conjunto y rechaza el deshacer si alguien modificó
+los datos después. No se agregan columnas ni tablas. En cada `ProposedField`, `source` conserva la
+evidencia textual; `origin="document"` marca citas documentales, `origin="ai_generated"` marca
+valores calculados y `origin="existing"` identifica valores guardados que se reutilizan. El origen
+de la propuesta sigue siendo `description` o `document`; `fallback=true` identifica el motor
+paramétrico local.
+
 ## Deshacer eliminaciones
 
 - Se guarda un historial por proyecto de los terrenos, planos, elevaciones, materiales, cuartos y componentes estructurales eliminados, con un máximo de 20 entradas.
@@ -242,7 +265,7 @@ El enlace de recuperación lleva su identificador en la dirección. La aplicaci�
 
 ### Tamaño de los datos
 
-Todos los textos que recibe la API tienen una longitud máxima, las listas de vértices un número máximo de puntos y los archivos un tamaño máximo. La descripción de un proyecto admite hasta 2000 caracteres.
+Todos los textos que recibe la API tienen una longitud máxima, las listas de vértices un número máximo de puntos y los archivos un tamaño máximo. Los textos libres admiten hasta 200 caracteres (las excepciones están en `docs/TEXT_LIMITS.md`).
 
 ### Dependencias
 
@@ -283,7 +306,7 @@ Se pueden definir en la terminal o en el archivo `.env`, que leen `python -m app
 |---|---|
 | `DATABASE_URL` | Conexión a la base de datos (obligatoria). |
 | `DATABASE_DIR` | Carpeta del repositorio `BASE-DE-DATOS-ARQUILA`, de donde salen las migraciones (por defecto la carpeta hermana `../BASE-DE-DATOS-ARQUILA`). |
-| `API_HOST`, `API_PORT` | Dirección y puerto en los que escucha la API (por defecto `127.0.0.1` y `8000`). |
+| `API_HOST`, `API_PORT` | Dirección y puerto en los que escucha la API (por defecto `127.0.0.1` y `8010`). |
 | `UPLOAD_DIR` | Carpeta de archivos subidos (por defecto `uploads`). |
 | `STATE_STORAGE` | `memory` (por defecto) guarda en memoria el historial de «Deshacer» y los límites de intentos; `database` los guarda en la tabla `runtime_state`. |
 | `FILE_STORAGE` | `disk` (por defecto) guarda los archivos en `UPLOAD_DIR`; `database` los guarda en la tabla `file_contents`. |
